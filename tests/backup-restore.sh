@@ -457,9 +457,6 @@ else
   say "Backup ${backup_name} holds the CloudTAK PostGIS volume"
 fi
 
-say "delete namespaces takserver and cloudtak"
-k delete namespace takserver cloudtak --wait=true --timeout=600s
-
 # Without a volume in the backup, a restored claim would point at the deleted
 # volume and stay Pending, so the StatefulSets create fresh claims. With the
 # Postgres volume backed up, Velero restores the claims: a PV with reclaim
@@ -471,7 +468,7 @@ restore_scope="  includeClusterResources: false
 if [[ "${fs_backed}" -eq 1 ]]; then
   restore_scope="  # Unset so the claims' PVs are handled with them."
 fi
-cat <<EOF | k apply -f -
+cat > "${work}/restore.yaml" <<EOF
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
@@ -489,6 +486,13 @@ spec:
     - cloudtak
 ${restore_scope}
 EOF
+
+# Fail against the actual API schema before deleting application namespaces.
+# A new server image alone does not prove that its Restore CRD was upgraded.
+k create --dry-run=server --validate=strict -f "${work}/restore.yaml" >/dev/null
+say "delete namespaces takserver and cloudtak"
+k delete namespace takserver cloudtak --wait=true --timeout=600s
+k create -f "${work}/restore.yaml"
 
 # A PodVolumeRestore holds the Restore InProgress until the data is back.
 wait_phase restore.velero.io "${restore_name}" "$(( fs_backed == 1 ? 300 : 60 ))"
