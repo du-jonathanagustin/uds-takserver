@@ -102,5 +102,12 @@ class ControllerState(unittest.TestCase):
         self.assertIn('    name: ${controller_policy}',script)
         self.assertIn('v["immutable"]=True',script)
         self.assertNotIn('existingResourcePolicy:',script)
+        # Each ownership-trial stage has its own restore name. Reusing a run-only
+        # immutable ConfigMap would fail the second acceptance in the same run.
+        self.assertIn('controller_policy="${restore_name}-policy"',script)
+        driver=(ROOT/'tests/velero-ownership/drive.py').read_text()
+        self.assertIn("'tests/velero-controller-restore-policy.yaml'",driver)
+        self.assertIn("'.github/scripts/velero-controller-state.py'",driver)
+
 
 if __name__=='__main__':unittest.main()
