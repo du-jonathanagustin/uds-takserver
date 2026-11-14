@@ -195,3 +195,11 @@ reference (`src/pepr/operator/controllers/istio/istio-resources.ts`, commit
 `fd9769cd9e791d9b6ad86251af0f4899992a9ae5`). These source reviews and offline
 controls do not establish successful cluster restore; the changed-source trial
 must still pass the complete data and client acceptance checks.
+
+The deployed Restore CRD must support `spec.resourcePolicy`. The test validates
+the exact Restore against the server with strict server-side dry-run before
+deleting application namespaces. A compatible server image does not prove a
+compatible installed CRD. Full Core run 43647194625 at candidate `5ec1bba`
+rejected this field on both architectures; this policy remains unqualified
+until a declarative CRD compatibility change is reviewed and the complete
+cluster acceptance succeeds.

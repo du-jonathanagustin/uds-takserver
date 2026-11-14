@@ -4,6 +4,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -33,6 +34,28 @@ def write(folder,values):
     for name,value in values.items():(folder/name).write_text(json.dumps(value))
 
 class ControllerState(unittest.TestCase):
+    def test_server_schema_rejection_stops_before_namespace_deletion(self):
+        script=(ROOT/'tests/backup-restore.sh').read_text()
+        start=script.index('# Fail against the actual API schema')
+        end=script.index('# A PodVolumeRestore holds',start)
+        setup='''set -euo pipefail
+say() { :; }
+k() {
+  printf '%s\\n' "$*" >> "$CALLS"
+  if [[ "$*" == *--dry-run=server* ]]; then return "$SCHEMA_RESULT"; fi
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            for rejected in (False,True):
+                calls=Path(directory)/'calls';calls.write_text('')
+                result=subprocess.run(['bash','-c',setup+script[start:end]],capture_output=True,text=True,
+                    env={**os.environ,'work':directory,'CALLS':str(calls),'SCHEMA_RESULT':str(int(rejected))})
+                self.assertEqual(result.returncode,int(rejected))
+                commands=calls.read_text().splitlines()
+                self.assertIn('--dry-run=server --validate=strict',commands[0])
+                self.assertEqual(any(line.startswith('delete namespace') for line in commands),not rejected)
+                self.assertEqual(len(commands),1 if rejected else 3)
+
     def test_regenerated_uids_and_metadata_allowed_but_current_owner_required(self):
         with tempfile.TemporaryDirectory() as directory:
             folder=Path(directory);values=fixture();write(folder,values);before=M.snapshot(folder)
@@ -100,6 +123,7 @@ class ControllerState(unittest.TestCase):
         self.assertLess(script.index('controller-state.py" snapshot'),script.index('k delete namespace takserver cloudtak'))
         self.assertLess(script.index('controller-state.py" verify'),script.index('apps_up=0'))
         self.assertIn('    name: ${controller_policy}',script)
+        self.assertLess(script.index('k create --dry-run=server --validate=strict'),script.index('k delete namespace takserver cloudtak'))
         self.assertIn('v["immutable"]=True',script)
         self.assertNotIn('existingResourcePolicy:',script)
         # Each ownership-trial stage has its own restore name. Reusing a run-only
