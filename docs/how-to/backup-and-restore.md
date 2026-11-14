@@ -180,7 +180,7 @@ Before backup the test fingerprints all seven resources. After restore it waits
 up to 120 seconds for identical certificate/CRL data and route spec, and verifies
 the route belongs to the current CloudTAK Package UID and generation. Missing
 resources, changed trust or route content, and stale ownership fail acceptance.
-The per-run policy ConfigMap is created immutable; an existing name is refused.
+The per-restore policy ConfigMap is created immutable; an existing name is refused.
 Raw readback stays in the private temporary directory and is removed on exit.
 
 The policy uses Velero 1.18.4's `excludedNames` with exact namespace/kind/name

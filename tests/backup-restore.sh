@@ -356,7 +356,7 @@ controller_inventory() {
 }
 controller_inventory
 python3 "${root}/.github/scripts/velero-controller-state.py" snapshot "${work}" > "${work}/controller-baseline.json"
-controller_policy="tak-controller-${run_id}-${attempt}"
+controller_policy="${restore_name}-policy"
 # Create, never update an existing policy. Immutable data binds this restore to
 # the reviewed exact-name exclusions while leaving the full backup unchanged.
 k create configmap "${controller_policy}" -n velero --from-file=policy="${root}/tests/velero-controller-restore-policy.yaml" --dry-run=client -o json \
