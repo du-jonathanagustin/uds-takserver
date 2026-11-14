@@ -165,3 +165,33 @@ migration or a new install.
 - [Data and backup contents](../data.md#backup)
 - [Logical dump decision](../../adr/0016-logical-db-dump.md)
 - [Velero node-agent decision](../../adr/0021-velero-node-agent.md)
+
+### Controller resources during the full-core restore test
+
+The test backs up the complete application namespaces. Its restore policy skips
+only `istio-ca-crl`, `istio-ca-root-cert` and `kube-root-ca.crt` ConfigMaps in
+`takserver` and `cloudtak`, and the `cloudtak-tenant-cloudtak-map` VirtualService
+in `cloudtak`. Kubernetes/Istio regenerate the trust ConfigMaps; the UDS Package
+controller regenerates the route. Restoring stale copies races those controllers.
+All other ConfigMaps, Secrets, workload objects and data retain their existing
+restore scope. The strict zero-warning/error acceptance gate remains unchanged.
+
+Before backup the test fingerprints all seven resources. After restore it waits
+up to 120 seconds for identical certificate/CRL data and route spec, and verifies
+the route belongs to the current CloudTAK Package UID and generation. Missing
+resources, changed trust or route content, and stale ownership fail acceptance.
+The per-run policy ConfigMap is created immutable; an existing name is refused.
+Raw readback stays in the private temporary directory and is removed on exit.
+
+The policy uses Velero 1.18.4's `excludedNames` with exact namespace/kind/name
+rules and a catch-all preserving unrelated kinds. Matching semantics were
+reviewed at upstream commit `4ee1e79a7aed367fd9b767b8219ec65bd0c96892`
+(`pkg/restore/restore.go`, `internal/resourcepolicies/resource_policies.go`).
+Istio 1.31.2's namespace reconciler creates/updates the root/CRL ConfigMaps
+(`pilot/pkg/serviceregistry/kube/controller/namespacecontroller.go`, commit
+`e2f3a7949a358af7dd901a6f9ccd6ecdd7270271`). UDS Core 1.16.0's
+`istioResources` applies the generated VirtualService with a Package owner
+reference (`src/pepr/operator/controllers/istio/istio-resources.ts`, commit
+`fd9769cd9e791d9b6ad86251af0f4899992a9ae5`). These source reviews and offline
+controls do not establish successful cluster restore; the changed-source trial
+must still pass the complete data and client acceptance checks.
