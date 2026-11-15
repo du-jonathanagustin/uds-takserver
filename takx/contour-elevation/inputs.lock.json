@@ -1,12 +1,13 @@
 {
   "schema": 1,
-  "profile": "public-elevation-contours-v1",
-  "scope": "project elevation contours with rectangle clipping, native styled features and owned persistent layer CPU controls; no rendered/full client API acceptance",
+  "profile": "public-elevation-contours-v2",
+  "scope": "project elevation contours, styled owned layers and renderer visibility/cache binding; scoped CPU/retirement controls, no full rendered/client API acceptance",
   "owned": {
     "java/gov/tak/project/contour/ElevationContours.java": "1402af3589ef750691cbfbbf8747d1a033b8bd45bfe73861f941223cd44ce48b",
     "java/gov/tak/project/contour/ContourFeatures.java": "5dd50f983b4f9f025f161e5a16335c056cf1b6cd2ff2795a2c4a8c279ba1320c",
-    "java/gov/tak/project/contour/ContourLayer.java": "3136f99656a282fa39e78c5b8495b40420191acff590c6ced28aa5786428c149",
-    "tests/ElevationContourControls.java": "d540676af8015e6867d286a5cc1a89961c4a5c3f91098f8e272e7934f89d516f"
+    "java/gov/tak/project/contour/ContourLayer.java": "7763787f5bc810442f66741daec2f6aab8429b1ea34a90b8161960f4777f06e0",
+    "tests/ElevationContourControls.java": "68993b6c1a516d849bf86e83c746826156cce32aa66643cf9878cb0eca5bb812",
+    "tests/ContourVisibilityControls.java": "305586bf1ba197bfbe88a88ad13108543dab4e32d5297f9c6a319c6e6e8ec8e1"
   },
   "grid_sha256": "a5a986409258cda81f147dd241f0dc2d9ccca48d5d56c032f12dc325a3f227c5",
   "elevation_profile": {
@@ -21,7 +22,7 @@
     "tests/ElevationChunkProbe.java": "15904d4d256107048e6b2792015913fb7dcce92b4b64d5999091b6ff87b91383",
     "tests/ElevationChunkProbe.cpp": "97c663a57501932982607318bf36606cce999fbf7476752e2dee1aabde4de433"
   },
-  "checks": 597,
+  "checks": 615,
   "contour_api_implemented": false,
   "layer_runtime_accepted": false,
   "full_client_accepted": false,

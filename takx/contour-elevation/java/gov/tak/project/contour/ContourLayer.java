@@ -5,6 +5,14 @@ package gov.tak.project.contour;
 import com.atakmap.map.layer.feature.*;
 import com.atakmap.map.layer.feature.datastore.FeatureSetDatabase2;
 import gov.tak.api.util.Disposable;
+import com.atakmap.map.MapRenderer;
+import com.atakmap.map.MapRenderer3;
+import com.atakmap.map.layer.Layer;
+import com.atakmap.map.layer.control.SurfaceRendererControl;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -18,6 +26,7 @@ public final class ContourLayer implements AutoCloseable {
     private final FeatureLayer3 layer;
     private final long featureSetId;
     private boolean closed;
+    private final Set<VisibilityBinding> bindings = Collections.newSetFromMap(new IdentityHashMap<>());
     private ContourLayer(FeatureSetDatabase2 store, FeatureLayer3 layer, long id) {
         this.store = store; this.layer = layer; featureSetId = id;
     }
@@ -70,9 +79,63 @@ public final class ContourLayer implements AutoCloseable {
         if (closed) throw new IllegalStateException("contour layer is closed");
         return featureSetId;
     }
+    /**
+     * Keeps the renderer's cached surface current when this layer is shown/hidden.
+     * Bind while attaching the layer; close the binding before disposing the view.
+     * Owner close also retires bindings. Layer removal remains caller-owned.
+     */
+    public VisibilityBinding bindRenderer(MapRenderer renderer) {
+        if (closed) throw new IllegalStateException("contour layer is closed");
+        Objects.requireNonNull(renderer, "renderer");
+        if (!(renderer instanceof MapRenderer3 modern))
+            throw new IllegalArgumentException("surface-capable renderer required");
+        SurfaceRendererControl surface = modern.getControl(SurfaceRendererControl.class);
+        if (surface == null) throw new IllegalArgumentException("surface renderer control required");
+        VisibilityBinding binding = new VisibilityBinding(renderer, surface);
+        synchronized (bindings) { bindings.add(binding); }
+        layer.addOnLayerVisibleChangedListener(binding.listener);
+        return binding;
+    }
+
+    /** Owns queued surface invalidations for one renderer. */
+    public final class VisibilityBinding implements AutoCloseable {
+        private final MapRenderer renderer;
+        private final SurfaceRendererControl surface;
+        private final AtomicBoolean active = new AtomicBoolean(true);
+        private final Layer.OnLayerVisibleChangedListener listener = ignored -> invalidate();
+        private VisibilityBinding(MapRenderer renderer, SurfaceRendererControl surface) {
+            this.renderer = renderer; this.surface = surface;
+        }
+        private void invalidate() {
+            if (!active.get()) return;
+            Runnable work = () -> {
+                if (!active.get()) return;
+                // AbstractLayer dispatches under its monitor. Wait for all
+                // visibility listeners to finish before invalidating the cache.
+                layer.isVisible();
+                synchronized (this) {
+                    if (active.get()) surface.markDirty();
+                }
+            };
+            if (renderer.isRenderThread()) work.run(); else renderer.queueEvent(work);
+        }
+        @Override public void close() {
+            // Retire another thread's in-flight work before taking the layer
+            // monitor to unregister the listener.
+            synchronized (this) {
+                if (!active.getAndSet(false)) return;
+            }
+            layer.removeOnLayerVisibleChangedListener(listener);
+            synchronized (bindings) { bindings.remove(this); }
+        }
+    }
+
     @Override public void close() {
         if (closed) return;
         closed = true;
+        List<VisibilityBinding> retiring;
+        synchronized (bindings) { retiring = new ArrayList<>(bindings); bindings.clear(); }
+        for (VisibilityBinding binding : retiring) binding.close();
         store.dispose();
     }
     private static final class Owned implements AutoCloseable {
