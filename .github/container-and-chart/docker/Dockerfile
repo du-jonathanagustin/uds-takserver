@@ -260,8 +260,10 @@ LABEL org.opencontainers.image.source="${SOURCE_REPO}" \
 # publish-cert-configmap.sh. The other TAK images do not need openssl.
 # gettext provides envsubst for the OIDC init container. The stock chart
 # cannot add that container, so this image is reused as the init image.
+# Exercise the trust fetch's timeout option contract in each native build.
 RUN microdnf install -y openssl gettext \
-    && microdnf clean all
+    && microdnf clean all \
+    && timeout --signal=TERM --kill-after=1s 5s /bin/sh -c :
 COPY --from=builder /src/src/takserver-core/scripts/certs /opt/tak/certs
 COPY publish-cert-configmap.sh /opt/tak/certs/publish-cert-configmap.sh
 # The Job may run as a non-root uid. makeRootCa.sh creates files/ here.
