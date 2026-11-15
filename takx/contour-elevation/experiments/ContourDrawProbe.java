@@ -8,6 +8,7 @@ import com.atakmap.map.elevation.*;
 import com.atakmap.map.layer.feature.geometry.*;
 import com.jogamp.opengl.*;
 import com.jogamp.opengl.awt.GLCanvas;
+import com.jogamp.opengl.util.FPSAnimator;
 import gov.tak.platform.engine.JOGLRenderContext;
 import gov.tak.platform.commons.opengl.GLES30;
 import gov.tak.project.contour.*;
@@ -26,7 +27,9 @@ public final class ContourDrawProbe implements GLEventListener {
     static void check(boolean v,String why){if(!v)throw new AssertionError(why);}
     final GLCanvas canvas;final ContourLayer owner;final Path output;
     final Globe globe=new Globe();final JOGLRenderContext context;
-    GLMapView view;int major,minor,frames;
+    GLMapView view;int frames;boolean capturedImage;volatile boolean released;
+    record Pixels(int sequence,int major,int minor){}
+    volatile Pixels pixels=new Pixels(0,0,0);
     ContourDrawProbe(GLCanvas canvas,ContourLayer owner,Path output){
         this.canvas=canvas;this.owner=owner;this.output=output;
         context=new JOGLRenderContext(canvas);
@@ -46,45 +49,57 @@ public final class ContourDrawProbe implements GLEventListener {
         view.start();check(view.lookAt(new com.atakmap.coremap.maps.coords.GeoPoint(0,0),500,0,0,false),"lookAt refused");
     }catch(Throwable error){failure.compareAndSet(null,error);}}
     public void display(GLAutoDrawable drawable){try{
+        if(released)return;
+        GLAnimatorControl animator=canvas.getAnimator();
+        if(animator!=null&&animator.isAnimating())check(Thread.currentThread()==animator.getThread(),"animator draw owner required");
         // Match the real TAKX JOGLMapRendererSpi host clear before rendering.
         drawable.getGL().glClear(GL.GL_COLOR_BUFFER_BIT|GL.GL_DEPTH_BUFFER_BIT|GL.GL_STENCIL_BUFFER_BIT);
         view.render();
-        int[] framebuffer={-1};GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING,framebuffer,0);
+        int[] framebuffer={-1};GLES30.glGetIntegerv(GL.GL_READ_FRAMEBUFFER_BINDING,framebuffer,0);
         check(framebuffer[0]==drawable.getContext().getDefaultReadFramebuffer(),"renderer did not restore read framebuffer");
         ByteBuffer pixels=ByteBuffer.allocateDirect(drawable.getSurfaceWidth()*drawable.getSurfaceHeight()*4);
         GLES30.glReadPixels(0,0,drawable.getSurfaceWidth(),drawable.getSurfaceHeight(),GLES30.GL_RGBA,GLES30.GL_UNSIGNED_BYTE,pixels);
         check(GLES30.glGetError()==GLES30.GL_NO_ERROR,"GL error after actual contour-layer draw/readback");
-        major=0;minor=0;
+        int major=0,minor=0;
         for(int i=0;i<pixels.capacity();i+=4){int r=pixels.get(i)&255,g=pixels.get(i+1)&255,b=pixels.get(i+2)&255;
             if(r<25&&g>230&&b<25)major++;
             if(r>230&&g<25&&b>230)minor++;
         }
         frames++;
-        if(owner.layer().isVisible()&&major>20&&minor>20){
+        if(!capturedImage&&owner.layer().isVisible()&&major>20&&minor>20){
             BufferedImage image=new BufferedImage(drawable.getSurfaceWidth(),drawable.getSurfaceHeight(),BufferedImage.TYPE_INT_ARGB);
             for(int y=0;y<image.getHeight();y++)for(int x=0;x<image.getWidth();x++){
                 int i=(y*image.getWidth()+x)*4;
                 image.setRGB(x,image.getHeight()-1-y,0xff000000|((pixels.get(i)&255)<<16)|((pixels.get(i+1)&255)<<8)|(pixels.get(i+2)&255));
             }
             ImageIO.write(image,"png",output.resolve("actual-contours.png").toFile());
+            capturedImage=true;
         }
+        this.pixels=new Pixels(frames,major,minor);
     }catch(Throwable error){failure.compareAndSet(null,error);}}
     public void reshape(GLAutoDrawable d,int x,int y,int w,int h){}
-    public void dispose(GLAutoDrawable drawable){try{
+    public void dispose(GLAutoDrawable drawable){disposeNow();}
+    void disposeNow(){if(released)return;released=true;try{
+        var binding=visibilityBinding;visibilityBinding=null;if(binding!=null)binding.close();
         globe.removeLayer(owner.layer());
         ((RenderContextBinding)view.getRenderContext()).beginRelease();
         view.stop();view.release();view.dispose();
     }catch(Throwable error){failure.compareAndSet(null,error);}}
+    volatile ContourLayer.VisibilityBinding visibilityBinding;
     static void healthy(){if(failure.get()!=null)throw new AssertionError("actual contour draw failed",failure.get());}
     static void pump(ContourDrawProbe probe,int limit,boolean visible)throws Exception{
-        for(int i=0;i<limit;i++){
-            probe.canvas.display();healthy();
-            if(visible?probe.major>20&&probe.minor>20:probe.major==0&&probe.minor==0)return;
+        int floor=probe.pixels.sequence;long deadline=System.nanoTime()+10_000_000_000L;
+        while(System.nanoTime()<deadline){
+            healthy();Pixels sample=probe.pixels;
+            if(sample.sequence>floor&&(visible?sample.major>20&&sample.minor>20:sample.major==0&&sample.minor==0))return;
+            if(sample.sequence-floor>=limit)break;
             Thread.sleep(20);
         }
-        throw new AssertionError("actual layer pixel condition absent visible="+visible+" major="+probe.major+" minor="+probe.minor);
+        Pixels sample=probe.pixels;
+        throw new AssertionError("actual layer pixel condition absent visible="+visible+" major="+sample.major+" minor="+sample.minor);
     }
     public static void main(String[] args)throws Exception{
+        Thread.setDefaultUncaughtExceptionHandler((thread,error)->{failure.compareAndSet(null,error);error.printStackTrace(System.err);});
         HeadedAdmission.checkOrigins();HeadedAdmission.verifyMaps("before-contour-load",false);
         for(String line:Files.readAllLines(Path.of(args[0])))if(!line.isBlank())System.load(line);
         System.load(args[1]);EngineLibrary.initialize();Threading.disableSingleThreading();
@@ -99,24 +114,38 @@ public final class ContourDrawProbe implements GLEventListener {
         try{contours=ElevationContours.generate("owned-draw-plane",ElevationData.MODEL_TERRAIN,9,9,-.8,-.8,.8,.8,25,0,null,null).clipped(-.3,-.3,.3,.3,null,null);}
         finally{ElevationSourceManager.detach(source);chunk.dispose();bounds.dispose();ring.dispose();}
         GLLayerFactory.register(GLBatchGeometryFeatureDataStoreRenderer.SPI);
-        Frame[] window={null};ContourDrawProbe[] probe={null};
+        Frame[] window={null};ContourDrawProbe[] probe={null};FPSAnimator[] animator={null};
         try(var batch=ContourFeatures.create(contours.lines(),25,0,2,0xffff00ff,0xff00ff00,3,6,null);
             var layer=ContourLayer.create("Owned pixel contours",output.resolve("owned-contours.sqlite"),batch)){
             try{
                 EventQueue.invokeAndWait(()->{
                     GLCanvas canvas=new GLCanvas(new GLCapabilities(GLProfile.getMaxProgrammable(true)));
                     canvas.setPreferredSize(new Dimension(320,240));probe[0]=new ContourDrawProbe(canvas,layer,output);canvas.addGLEventListener(probe[0]);
+                    animator[0]=new FPSAnimator(canvas,30,true);
                     window[0]=new Frame("Owned actual contour rendering");window[0].add(canvas);window[0].pack();window[0].setVisible(true);
                 });
+                probe[0].visibilityBinding=layer.bindRenderer(probe[0].view);
+                animator[0].start();
                 pump(probe[0],30,false);System.out.println("CONTOUR_HIDDEN_BASELINE major=0 minor=0");
-                layer.layer().setVisible(true);pump(probe[0],120,true);
-                System.out.println("CONTOUR_VISIBLE_PIXELS major="+probe[0].major+" minor="+probe[0].minor);
-                layer.layer().setVisible(false);pump(probe[0],120,false);
+                for(int cycle=0;cycle<3;cycle++){
+                EventQueue.invokeAndWait(()->layer.layer().setVisible(true));pump(probe[0],120,true);
+                Pixels visible=probe[0].pixels;System.out.println("CONTOUR_VISIBLE_PIXELS major="+visible.major+" minor="+visible.minor);
+                EventQueue.invokeAndWait(()->layer.layer().setVisible(false));pump(probe[0],120,false);
                 System.out.println("CONTOUR_HIDDEN_AFTER major=0 minor=0");
+                    System.out.println("CONTOUR_BINDING_CYCLE_PASS "+cycle);
+                }
                 HeadedAdmission.verifyMaps("after-contour-draw",true);
-            }finally{if(window[0]!=null)EventQueue.invokeAndWait(()->{probe[0].canvas.destroy();window[0].dispose();});}
+            }finally{
+                if(window[0]!=null){
+                    try{probe[0].canvas.invoke(true,drawable->{probe[0].disposeNow();return true;});}
+                    finally{
+                        try{if(animator[0]!=null)animator[0].stop();}
+                        finally{EventQueue.invokeAndWait(()->{probe[0].canvas.destroy();window[0].dispose();});}
+                    }
+                }
+            }
             healthy();
         }finally{GLLayerFactory.unregister(GLBatchGeometryFeatureDataStoreRenderer.SPI);}
-        System.out.println("CONTOUR_DRAW_CONTROLS_PASS actual-layer/visibility/pixels software-only");
+        System.out.println("CONTOUR_DRAW_CONTROLS_PASS actual-layer/visibility/pixels animator-owned software-only");
     }
 }

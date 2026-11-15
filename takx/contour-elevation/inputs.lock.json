@@ -28,6 +28,6 @@
   "full_client_accepted": false,
   "clip_sha256": "2c6e0d199cffdc062c3ccff9c28fd9adc0660102cbe54a17f908aad9247c7245",
   "experimental_controls": {
-    "experiments/ContourDrawProbe.java": "bb062c063b37c3b62c568b8e1f994dfbf12530fbeacd2f03b6dc7432675d971d"
+    "experiments/ContourDrawProbe.java": "cb694f25766eec69cca2b1b26c9bc3b3c79a92210250fb9769347da8b08de7e2"
   }
 }

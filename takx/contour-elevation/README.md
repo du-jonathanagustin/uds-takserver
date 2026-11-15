@@ -151,3 +151,39 @@ fails strict JNI and the subsequent hide control. Its reviewed diagnostic source
 and precise limits are in `experiments/README.md`. Default verification locks
 that diagnostic source without compiling or executing it. These failures do not
 change the passing CPU scope or grant rendered-layer/client acceptance.
+
+## Renderer visibility and surface-cache ownership
+
+Keep a `ContourLayer.VisibilityBinding` from `owner.bindRenderer(view)` while the
+layer is attached to a surface-capable renderer. It schedules invalidation on
+the renderer thread after the layer's visibility dispatch completes, so cached
+surface tiles reflect both show and hide changes. It requires the real SDK
+`MapRenderer3`/`SurfaceRendererControl`; unsupported renderers refuse before a
+listener is added. It changes no Kernel class or native producer.
+
+Close the binding before disposing the view, and detach/finish renderer teardown
+before closing the contour owner. Binding close unregisters its listener,
+cancels queued work and waits for another thread's in-flight invalidation.
+Owner close retires remaining bindings before disposing its datastore. Creation,
+access and owner close retain the existing single-owner-thread contract.
+
+The version-2 public CPU command passes 615 assertions, including 18 checks of
+queued and inline dispatch, unsupported-control refusal, cancellation,
+unregistration, in-flight retirement and owner close, with zero JNI warnings.
+The unchanged 8 MiB quota passes. The latest locked recipe receipt is
+`f60056920b8daaa7863ee33163b07bfe0daf00b9c33eb515bd91e3aaffdb64e0`.
+Its preceding receipt (before replacing the readonly diagnostic) is
+`961414e1a313cd692e3e2ae5947d38f1c30ab7b196eb339caa012824b9268f97`.
+The same source also passes against Native10's own Java/Core/JNI, receipt
+`b26990f912bf421fbd22cf11186a2ea9e2403677d82889463d7bbea75e35c6e9`.
+
+A barrier-only hide control still leaves pixels. Adding the actual surface
+invalidation clears them. The binding then passes a single-cycle and a
+three-cycle owned software drawing replay, with no manual invalidation in the
+harness and zero JNI warnings. Receipts:
+`f67c7d09478092db91c919e2188a7fbf0fca84298da951f06f217470c0586eb0`
+and `83ee07ab79586c7c4d4a4d909e0a9bef9c8abb35806014a3206316968fd3abe1`.
+These use complete Native10, isolated Xvfb/software Mesa and private font03.
+Stock-JDK, hardware, full renderer/cache and complete TAKX/client acceptance
+remain open; broad acceptance flags remain false. The corrected animator-based
+probe is locked under `experiments/` and remains excluded from default execution.
