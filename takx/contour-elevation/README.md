@@ -187,3 +187,12 @@ These use complete Native10, isolated Xvfb/software Mesa and private font03.
 Stock-JDK, hardware, full renderer/cache and complete TAKX/client acceptance
 remain open; broad acceptance flags remain false. The corrected animator-based
 probe is locked under `experiments/` and remains excluded from default execution.
+
+The current dependency lock includes the elevation profile's seventh owned scalar
+control and updated bounded consumer. The same contour sources pass all 615 CPU
+checks against that exact dependency with zero strict JNI diagnostics, within the
+unchanged 8 MiB budget. Receipt:
+`97c8eee6012094b0d5fc0a6e2cb55bce442878985b5824d772ef0b4d81410774`.
+All 16 class products and every input digest were verified afterward. Earlier
+CPU and pixel receipts retain their original source and dependency snapshots;
+this dependency update changes no contour implementation or acceptance flag.
