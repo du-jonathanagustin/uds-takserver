@@ -666,3 +666,50 @@ class StoredHookSourceGuards(unittest.TestCase):
         for mutate in [lambda v:v.update(extra='PRIVATE'),lambda v:v['diagnostic'].update(hook='PRIVATE'),lambda v:v['baseline']['hookInventory']['objects']['keystore'].update(sha256='PRIVATE')]:
             value=copy.deepcopy(failure);mutate(value)
             with self.assertRaises(ValueError):R.validate_source_failure(value)
+
+class RegistryAuthorityGuards(unittest.TestCase):
+    def fixture(self):
+        source={'apiVersion':'v1','kind':'Secret','metadata':{'name':'private-registry',
+            'namespace':'zarf','uid':'core-registry','resourceVersion':'1',
+            'labels':{'app.kubernetes.io/managed-by':'zarf'}},
+            'type':'kubernetes.io/dockerconfigjson','data':{'.dockerconfigjson':'PRIVATE_FIXTURE'}}
+        obj=copy.deepcopy(source);obj['metadata'].update(namespace='takserver',uid='namespace-copy')
+        driver=SimpleNamespace(get=lambda kind,name,namespace:source)
+        return obj,source,driver
+
+    def test_copy_requires_exact_retained_source_and_is_never_cleanup_allowed(self):
+        obj,source,driver=self.fixture();binding=R.registry_binding(driver,obj)
+        self.assertNotIn('PRIVATE_FIXTURE',json.dumps(binding))
+        self.assertTrue(R.preserved_registry(driver,obj,[binding]))
+        self.assertFalse(R.cleanup_allowed(R.resource_record(obj)))
+        for value in (obj,source):
+            value['metadata']['resourceVersion']='new-observation'
+            value['metadata']['managedFields']=[{'manager':'observation'}]
+        self.assertTrue(R.preserved_registry(driver,obj,[binding]))
+
+    def test_reject_replacement_payload_metadata_type_and_extra_fields_on_either_side(self):
+        changes=[lambda v:v['metadata'].update(uid='replacement'),
+                 lambda v:v['metadata'].update(deletionTimestamp='now'),
+                 lambda v:v['metadata']['labels'].clear(),
+                 lambda v:v['metadata'].update(annotations={'foreign':'changed'}),
+                 lambda v:v.update(type='Opaque'),lambda v:v.update(immutable=True),
+                 lambda v:v['data'].update(extra='payload'),
+                 lambda v:v['data'].update({'.dockerconfigjson':'changed'}),
+                 lambda v:v.update(stringData={'extra':'payload'})]
+        for side in ('target','source'):
+            for change in changes:
+                with self.subTest(side=side,change=change):
+                    obj,source,driver=self.fixture();binding=R.registry_binding(driver,obj)
+                    change(obj if side=='target' else source)
+                    with self.assertRaises(ValueError):R.preserved_registry(driver,obj,[binding])
+
+    def test_no_binding_duplicates_wrong_namespace_or_missing_authority_fail_closed(self):
+        obj,source,driver=self.fixture();binding=R.registry_binding(driver,obj)
+        for bindings in ([],[binding,binding]):
+            with self.assertRaises(ValueError):R.preserved_registry(driver,obj,bindings)
+        obj['metadata']['namespace']='istio-system'
+        with self.assertRaises(ValueError):R.registry_binding(driver,obj)
+        obj['metadata']['namespace']='takserver';source['metadata']['namespace']='cloudtak'
+        with self.assertRaises(ValueError):R.registry_binding(driver,obj)
+        driver.get=lambda *a,**k:(_ for _ in ()).throw(ValueError('source unavailable'))
+        with self.assertRaises(ValueError):R.registry_binding(driver,obj)

@@ -470,3 +470,29 @@ later re-query replaces the last rejected observation. Source/run/attempt hashes
 closed schema validation, private mode0600, sealed encryption input and the
 first-failure rule apply before ciphertext publication. No unchanged pilot retry
 is justified by the earlier failure alone.
+
+### Preserve the bound Zarf registry credential
+
+The authenticated AMD failure in run `43766370150` (source
+`254c30c4142dae05ee3e18b54dc7c991b924fda8`) left two non-deleting Secrets:
+`private-registry` and `takserver-crl`. This identifies the rejected inventory;
+it does not authorize deleting either Secret or establish fresh-strict acceptance.
+
+UDS CLI 0.41.0 embeds Zarf 0.89.0. Its
+[namespace post-renderer](https://github.com/zarf-dev/zarf/blob/6da2a6d7867f355af281e5a33a9d849174c4c2d2/src/internal/packager/helm/post-render.go)
+installs the registry pull credential using
+[GenerateRegistryPullCreds](https://github.com/zarf-dev/zarf/blob/6da2a6d7867f355af281e5a33a9d849174c4c2d2/src/pkg/cluster/secrets.go).
+The clean-state check preserves this infrastructure credential only after binding
+its exact data to the `zarf/private-registry` Secret before package removal. Both
+must have the Zarf managed-by label, Docker config Secret type and sole
+`.dockerconfigjson` data key. Missing or unequal source credentials refuse the
+trial before uninstall; there is no fallback exemption by name or label.
+
+The private state records hashes of both complete objects, including their UIDs,
+excluding only resourceVersion and managedFields. Every clean-state observation
+checks both objects against those original bindings. Replacement, deletion,
+metadata or payload changes refuse the trial. These credentials never enter the
+application deletion allowlist or public proof. Other Secrets, including
+`takserver-crl`, continue to prevent clean-state acceptance. CRL handling requires
+separate evidence and a decision about retaining revocation state; this registry
+change alone does not justify another staged package trial.
