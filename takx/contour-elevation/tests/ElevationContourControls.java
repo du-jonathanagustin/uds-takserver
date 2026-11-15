@@ -125,6 +125,7 @@ public final class ElevationContourControls {
                     try{ContourLayer.create("Alias must refuse",alias.resolve("new.sqlite"),storedBatch);}catch(IllegalArgumentException expected){aliasRefused=true;}
                     finally{Files.delete(alias);}
                     check(aliasRefused&&!Files.exists(database.resolveSibling("new.sqlite")),"symlink database path followed");
+                    checks += ContourVisibilityControls.run(owner);
                 }finally{owner.close();owner.close();}
                 rejects(owner::layer,IllegalStateException.class);
                 rejects(owner::featureSetId,IllegalStateException.class);
