@@ -137,7 +137,7 @@ full renderer/cache qualification remain open.
 ## Zoom-filter regression and remaining rendering gates
 
 The first renderer-style resolution query exposed a feature-set bug: a zero/zero
-resolution range maps to the highest LOD and hides contours at ordinary camera
+resolution range maps to the highest level of detail and hides contours at ordinary camera
 zooms. The wrapper now follows the actual upstream outlines convention,
 `Double.MAX_VALUE` to zero. Four visible-only queries at world, regional, metre
 and millimetre resolution pass. The corrected source-locked CPU replay completes
