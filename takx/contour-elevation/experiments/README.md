@@ -1,55 +1,54 @@
-# Failed software contour drawing controls
+# Owned software contour drawing controls
 
-`ContourDrawProbe.java` is a source-locked diagnostic, not part of the passing
-headless control inventory. It needs the actual context admission helpers from
-PR #499, frozen full Native07 providers/classes, JOGL, an independently owned
-Xvfb display and the separately qualified private derived font runtime. It is
-not a standalone native builder or a stock-JDK/hardware/client qualification.
+`ContourDrawProbe.java` is a source-locked diagnostic, excluded from default
+compilation/execution. It uses the actual context admission helpers from PR #499,
+complete Native10 Kernel 8.30.5 Core/JNI and its own Java classes (PR #595), JOGL,
+an owned Xvfb display and the separately qualified private font03 runtime. It is
+not a portable native builder or stock-JDK/hardware/full SDK/client acceptance.
 
-The probe uses the actual public elevation registry, clipped project contours,
-native styles/features, persistent FeatureLayer3, registered real batch renderer
-SPI and GLMapView. No fixture draws the colored lines. The first hidden baseline
-has zero target-color pixels; enabling the layer yields 814 green major-contour
-pixels and 268 magenta minor-contour pixels in the retained 320×240 frame.
+The probe samples the real public elevation registry, clips project contours,
+builds native styles/features in an owned persistent FeatureLayer3, and registers
+the actual batch renderer SPI with GLMapView. No fixture draws the colored lines.
+An owned FPS animator performs drawing and GL-current teardown; visibility
+changes run on the AWT event thread. Immutable volatile frame snapshots prevent
+stale or partially published pixel counts. Uncaught worker failures are captured
+and printed. Readback checks the actual read framebuffer binding.
 
-Both retained runs fail. The first lacks the host framebuffer clear; the second
-matches pinned TAKX 5.8 `JOGLMapRendererSpi.display` by clearing color/depth/stencil
-before `GLMapView.render`. Hiding the layer still leaves target pixels after the
-bounded frame pump. The reason has not been established. The second run also
-emits 18 strict JNI diagnostic lines; direct Java native frames identify
-`NativeLayer.wrap`, `NativeFeatureDataStore4.wrap` and `GLMapView.start`. Other
-worker warnings require native trace attribution; no C++ callsite is inferred.
-All input hashes are reverified after both failures. Actual Core/JNI producer
-bytes are unchanged. The screenshot is functional evidence only: no drawing,
-visibility, renderer, full SDK or client acceptance is granted from these runs.
+The contour owner binds renderer visibility to real surface-cache invalidation.
+The probe requires an empty hidden baseline, both green major and magenta minor
+pixels when visible, and zero target-color pixels after hiding, repeated for
+three cycles. It closes the visibility binding, removes the layer and stops,
+releases and disposes the view on its current GL context before owner disposal.
+The 20-pixel color thresholds, 30/120-frame budgets, stall cap and strict-JNI gate
+remain unchanged.
 
-Logs, source, helper, compiled classes, synthetic datastore, screenshot and
-independent review remain in separate local qualification roots:
-`contour-draw-controls-01` and `contour-draw-controls-02`. The second source is
-published here for review; default verification fingerprints it but compiles and
-executes only the headless CPU controls. Next work is strict-JNI attribution and
-visibility/cache invalidation diagnosis, followed by a full fresh producer and
-owned-display replay for any native correction. The zero-diagnostic and negative
-visibility gates remain mandatory.
+## Current scoped evidence
 
-## Native warning attribution
+The version-2 CPU/retirement suite passes 615 assertions with zero JNI warnings.
+The binding also passes single- and three-cycle animator/software replays with
+complete Native10 Core/JNI and its own Java classes. Receipts are listed in the
+parent README. This qualifies only the owned software/private-font experiment;
+all broad rendering, SDK, client and public TAKX contour API flags remain false.
 
-A third, diagnostic-only run uses native write-stack tracing on the unchanged
-full Native07 library. Fourteen warning writes yield nine distinct native stack
-prefixes. Symbol resolution identifies these review targets:
+A barrier-only hide replay still retains pixels, while the matched replay with
+`SurfaceRendererControl.markDirty()` clears them. A two-phase diagnostic records
+zero pixels after each framebuffer clear, then colored pixels after rendering
+on 121 hidden-layer frames. Read/draw bindings and write masks are correct. The
+owned binding invalidates after all visibility listeners complete; it does not
+replace a Kernel class or claim a global SDK root cause.
 
-- Core `ManagedLayer.cpp`: constructor calls before interface marshaling.
-- Renderer core `ManagedGLLayerSpi2.cpp`: factory creation and marshaling.
-- Renderer core `ManagedGLLayer2.cpp`: constructor/subject marshaling.
-- Feature `ManagedFeatureDataStore2.cpp`: constructor and query callback paths.
-- Feature `Interop.cpp`: query-parameter marshaling.
-- Feature `ManagedFeatureDefinition.cpp`: raw geometry and raw style callbacks.
+## Retained failures
 
-The trace, exact library/source/tool hashes and symbolized prefixes are retained
-in `contour-draw-controls-03/warning-attribution.json`. Partial unwind prefixes
-are reported only as observed; missing frames are not inferred. Tracing changes
-timing: this run fails its visible-color condition before completing the hide
-test, so it is attribution evidence rather than functional acceptance. Review
-pending-exception checks and cleanup in these actual callback paths before any
-closed source correction and complete fresh native rebuild. No native producer
-or acceptance gate was modified for the trace.
+Original manual-display replays 01/02 retain pixels after hiding and report
+unchecked JNI calls. Replay03's bounded native write stacks identify observed
+prefixes in ManagedLayer, ManagedGLLayerSpi2, ManagedGLLayer2,
+ManagedFeatureDataStore2, feature Interop and ManagedFeatureDefinition; missing
+frames are not inferred. That traced run also fails visible colors. Earlier
+sources, logs, libraries, synthetic databases and screenshots remain frozen.
+The historical published probe remains available at commit `5a7c620`.
+
+Corrected animator and checked-JNI experiments retain their earlier partial
+passes, AWT lock failures and failed hide results. Complete Native10 replay17
+still fails post-hide pixels without the binding, despite zero JNI warnings.
+An isolated one-bit `volatile` visibility-field hypothesis also fails and was
+not adopted. None of these failures is overwritten or relabeled as acceptance.
