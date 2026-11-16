@@ -25,7 +25,8 @@ class SourceCandidateGuards(unittest.TestCase):
     def test_manual_workflow_limits_signing_and_public_upload(self):
         workflow = yaml.safe_load((B.ROOT / '.github/workflows/core-restore-source.yaml').read_text())
         # PyYAML's YAML 1.1 parser reads the GitHub `on` key as True.
-        self.assertEqual(workflow.get('on', workflow.get(True)), {'workflow_dispatch': None})
+        self.assertEqual(set(workflow.get('on', workflow.get(True))), {'workflow_dispatch'})
+        self.assertFalse(workflow.get('on', workflow.get(True))['workflow_dispatch']['inputs']['run_api_smoke']['default'])
         self.assertEqual(workflow['permissions'], {'contents': 'read'})
         job = workflow['jobs']['build']
         self.assertIn("github.ref == 'refs/heads/main'", job['if'])
@@ -37,6 +38,9 @@ class SourceCandidateGuards(unittest.TestCase):
                             if step.get('uses', '').startswith('actions/upload-artifact@'))
         self.assertLess(job['steps'].index(consumer[0]), upload_index)
         self.assertNotIn('continue-on-error', consumer[0])
+        for step in job['steps']:
+            if '--cli ' in step.get('run', ''):
+                self.assertIn('readlink -f', step['run'])
         uploads = [s for s in job['steps'] if s.get('uses', '').startswith('actions/upload-artifact@')]
         self.assertEqual(len(uploads), 1)
         paths = uploads[0]['with']['path'].splitlines()
@@ -45,6 +49,21 @@ class SourceCandidateGuards(unittest.TestCase):
             'change.patch', 'LICENSE.md', 'inputs.lock.json', 'corresponding-source.tar.gz'})
         self.assertEqual(len(paths), 6)
         self.assertTrue(all(p.startswith('${{ runner.temp }}/core-source-build/artifacts/') for p in paths))
+
+    def test_failure_diagnostic_never_publishes_arbitrary_error_text(self):
+        error = ValueError('credential-sentinel private source details')
+        summary = B.failure_summary(error)
+        self.assertEqual(summary['category'], 'unclassified')
+        self.assertEqual(summary['sourceFrameLines'], [])
+        self.assertNotIn('credential-sentinel', json.dumps(summary))
+        self.assertEqual(B.failure_summary(ValueError('unreviewed UDS CLI payload'))['category'], 'cli-byte-pin')
+        try:
+            B.require(False, 'source lock differs')
+        except ValueError as error:
+            summary = B.failure_summary(error)
+        self.assertEqual(summary['category'], 'source-lock')
+        self.assertEqual(len(summary['sourceFrameLines']), 1)
+        self.assertEqual(summary['sourceSHA256'], B.digest(HERE / 'build.py'))
 
     def test_default_verifies_without_network_or_processes(self):
         with patch.object(B.subprocess, 'run', side_effect=AssertionError('process')), patch.object(
