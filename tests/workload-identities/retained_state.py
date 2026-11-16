@@ -916,3 +916,51 @@ def preserved_trust(driver,obj,bindings):
     source=driver.get('configmap',rec['sourceName'],namespace=rec['sourceNamespace'])
     require(source['metadata']['uid']==rec['sourceUID'] and sha(source.get('data',{}))==rec['sourceDataSHA256'],'retained Core trust authority changed')
     return True
+
+
+# Zarf v0.89.0 (embedded by UDS CLI v0.41.0) generates these namespace
+# copies in src/internal/packager/helm/post-render.go using
+# src/pkg/cluster/secrets.go:GenerateRegistryPullCreds. Never delete them.
+def registry_secret_digest(obj,namespace):
+    meta=obj.get('metadata',{})
+    require(obj.get('apiVersion')=='v1' and obj.get('kind')=='Secret' and
+            meta.get('namespace')==namespace and meta.get('name')=='private-registry' and
+            meta.get('uid') and not meta.get('deletionTimestamp') and
+            meta.get('labels',{}).get('app.kubernetes.io/managed-by')=='zarf' and
+            obj.get('type')=='kubernetes.io/dockerconfigjson' and
+            set(obj.get('data',{}))=={'.dockerconfigjson'} and not obj.get('stringData'),
+            'registry credential is not the bound Zarf source shape')
+    # Hash the whole object except API observation bookkeeping, including any
+    # otherwise unfamiliar fields. No payload or credentials enter public proofs.
+    value=copy.deepcopy(obj)
+    for key in ('resourceVersion','managedFields'):value['metadata'].pop(key,None)
+    return sha(value)
+
+
+def registry_binding(driver,obj):
+    namespace=obj.get('metadata',{}).get('namespace')
+    require(namespace in APP_RELEASES,'registry copy outside application')
+    target_hash=registry_secret_digest(obj,namespace)
+    source=driver.get('secret','private-registry',namespace='zarf')
+    source_hash=registry_secret_digest(source,'zarf')
+    require(obj['data']==source['data'],'registry copy differs from retained Zarf credentials')
+    return {'namespace':namespace,'name':'private-registry','objectSHA256':target_hash,
+            'sourceObjectSHA256':source_hash}
+
+
+def capture_registry(driver):
+    result=[]
+    for namespace in APP_RELEASES:
+        if not driver.kube('get','namespace',namespace,'--ignore-not-found','-o','json').strip():continue
+        for obj in driver.get('secrets',namespace=namespace)['items']:
+            if obj['metadata']['name']=='private-registry':result.append(registry_binding(driver,obj))
+    return result
+
+
+def preserved_registry(driver,obj,bindings):
+    namespace=obj.get('metadata',{}).get('namespace')
+    matches=[r for r in bindings if r['namespace']==namespace and r['name']==obj['metadata']['name']]
+    require(len(matches)==1,'registry copy has no bound Zarf authority')
+    rec=registry_binding(driver,obj)
+    require(rec==matches[0],'bound registry copy or retained Zarf authority changed')
+    return True

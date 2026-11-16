@@ -666,6 +666,13 @@ class PackageTrial(D.Driver):
             if not namespace.strip():continue
             for kind in kinds:
                 objects=self.get(kind,namespace=ns)['items']
+                if kind=='secrets' and ns in R.APP_RELEASES:
+                    retained=[]
+                    for obj in objects:
+                        if obj['metadata']['name']=='private-registry':
+                            R.preserved_registry(self,obj,self.state.get('preservedRegistrySecrets',[]))
+                        else:retained.append(obj)
+                    objects=retained
                 if kind=='configmaps':
                     retained=[]
                     for obj in objects:
@@ -705,6 +712,7 @@ class PackageTrial(D.Driver):
         # Remove only this exact application's installed Zarf package, never a bundle/Core.
         for entry in list(self.state['created']):
             if entry['kind']=='ServiceAccount' and not entry.get('deleted'):self.delete_created(entry['kind'],entry['name'])
+        self.state['preservedRegistrySecrets']=R.capture_registry(self)
         self.state['preservedTrustMaps']=R.capture_trust(self)
         self.state['retainedCleanup']=R.cleanup_snapshot(self,self.state['dataInvariants'])
         setup_hook=R.setup_hook_snapshot(self)
