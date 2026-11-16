@@ -521,3 +521,34 @@ The existing consumer, source and exact deletion guards still apply. No keys or
 CRL bodies enter public proofs. This scoped cleanup is not permission to discard
 revocation history in an existing deployment, and offline tests do not establish
 a successful fresh-strict package run.
+
+
+### Bind the remaining ConfigMaps to their actual source
+
+The AMD64 fresh-strict trial `43783535244` rejected two ConfigMaps after Secret
+cleanup: `ignite-extensions` and `istio-ca-crl`. The encrypted inventory names were
+matched to reviewed public producer sources before this change. This identifies
+the failed inventory; it does not establish a successful fresh-strict round trip.
+
+`docker/publish-cert-configmap.sh` publishes the application JAR as the sole
+`binaryData` key of `ignite-extensions`. The image Dockerfile also copies that JAR
+to `/ignite-extensions.jar`. Before removal, the retained-state capture compares
+the decoded ConfigMap JAR hash to a read-only `sha256sum` in the config container.
+It resolves a uniquely Ready Pod through the stored config Deployment UID and its
+ReplicaSet owner, requires the matching container image and immutable runtime
+image ID, rejects a mount over the source file, and checks that the Pod/container
+identity stays fixed during observation. Verification repeats the binding after
+rollout; the image identity must remain unchanged. Cleanup requires the captured
+binary and image-source digests, unchanged UID and payload, no remaining consumers,
+and the existing origin, metadata, resourceVersion and API deletion preconditions.
+A name alone never authorizes deletion.
+
+Istio's namespace controller owns `istio-ca-crl`; it must remain. At Istio commit
+`e2f3a7949a358af7dd901a6f9ccd6ecdd7270271`,
+`pilot/pkg/serviceregistry/kube/controller/namespacecontroller.go` distributes the CA watcher's CRL
+with the `istio.io/config=true` marker and `ca-crl.pem` key. Capture binds the
+application copy to the exact data and UID of `istio-system/istio-ca-crl`, then
+clean-state observation rechecks both the copy and retained authority. An empty
+CRL value is permitted only when that exact authority is also empty. Missing
+keys, added payload, changed authority or changed metadata still reject the trial.
+Neither this map nor any other Core resource is added to application cleanup.
