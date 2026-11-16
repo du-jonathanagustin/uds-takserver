@@ -203,3 +203,10 @@ compatible installed CRD. Full Core run 43647194625 at candidate `5ec1bba`
 rejected this field on both architectures; this policy remains unqualified
 until a declarative CRD compatibility change is reviewed and the complete
 cluster acceptance succeeds.
+
+
+The prepared Core dependency is available as a
+[reviewable patch with exact source hashes](../../tests/velero-ownership/dependencies/uds-core-restore-resource-policy/README.md).
+It adds the missing Restore reference schema and a non-persisting validation
+task to the pinned upstream Core source. It has passed exact-base patch
+application checks; no Core deployment or complete restore acceptance is claimed.
