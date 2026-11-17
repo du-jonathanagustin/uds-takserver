@@ -75,31 +75,37 @@ async function gatewaySet(cluster: Cluster): Promise<Set<string>> {
 }
 
 export async function reconcileCoreDns(cluster: Cluster, env: CoreDnsEnv): Promise<void> {
-  if (env.inClusterDns !== "true") {
-    return;
-  }
   const configMap = await cluster.getConfigMap(COREDNS_NAMESPACE, COREDNS_CONFIGMAP);
   if (!configMap) {
     return;
   }
-  if (!env.domain) {
-    throw new Error("DOMAIN is not set");
+  if (env.inClusterDns !== "true") {
+    // Disabling must also undo an earlier enabled installation. Remove only
+    // our key; Core and other applications share this ConfigMap.
+    if (!Object.prototype.hasOwnProperty.call(configMap.data ?? {}, OVERRIDE_KEY)) {
+      return;
+    }
+    await cluster.removeConfigMapKey(COREDNS_NAMESPACE, COREDNS_CONFIGMAP, OVERRIDE_KEY);
+  } else {
+    if (!env.domain) {
+      throw new Error("DOMAIN is not set");
+    }
+    if (!configMap.data) {
+      throw new Error("kube-system/coredns-custom has no data");
+    }
+    const rules = coreDnsRules(env.domain, env.passthroughHosts, await gatewaySet(cluster));
+    const current = configMap.data[OVERRIDE_KEY] ?? "";
+    if (sameOverride(current, rules)) {
+      return;
+    }
+    await cluster.patchConfigMapKey(
+      COREDNS_NAMESPACE,
+      COREDNS_CONFIGMAP,
+      OVERRIDE_KEY,
+      rules,
+      Object.prototype.hasOwnProperty.call(configMap.data, OVERRIDE_KEY),
+    );
   }
-  if (!configMap.data) {
-    throw new Error("kube-system/coredns-custom has no data");
-  }
-  const rules = coreDnsRules(env.domain, env.passthroughHosts, await gatewaySet(cluster));
-  const current = configMap.data[OVERRIDE_KEY] ?? "";
-  if (sameOverride(current, rules)) {
-    return;
-  }
-  await cluster.patchConfigMapKey(
-    COREDNS_NAMESPACE,
-    COREDNS_CONFIGMAP,
-    OVERRIDE_KEY,
-    rules,
-    Object.prototype.hasOwnProperty.call(configMap.data, OVERRIDE_KEY),
-  );
   const deployment = await cluster.getDeployment(COREDNS_NAMESPACE, COREDNS_DEPLOYMENT);
   if (!deployment) {
     throw new Error("kube-system/coredns Deployment is missing");
