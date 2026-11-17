@@ -1,0 +1,48 @@
+# Copyright 2026 uds-takserver authors
+# SPDX-License-Identifier: GPL-3.0-only
+name: GEOS cache fork proof
+
+on:
+  push:
+    branches: [proof/geos-cache-681]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: geos-cache-fork-proof
+  cancel-in-progress: false
+
+jobs:
+  prove:
+    if: github.repository == 'du-jonathanagustin/uds-takserver' && github.ref == 'refs/heads/proof/geos-cache-681'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout the fork proof commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Prove the frozen GEOS component on native Linux AMD64
+        env:
+          PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+          PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 -B .github/scripts/geos-cache-hosted-proof.py
+
+      - name: Retain bounded source and outcome metadata
+        if: always()
+        timeout-minutes: 3
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: geos-cache-681-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/geos-cache-681-report/source.json
+            ${{ runner.temp }}/geos-cache-681-report/builder.json
+            ${{ runner.temp }}/geos-cache-681-report/producer-result.json
+            ${{ runner.temp }}/geos-cache-681-report/restored.json
+            ${{ runner.temp }}/geos-cache-681-report/command-evidence.json
+            ${{ runner.temp }}/geos-cache-681-report/outcome.json
+          if-no-files-found: error
+          retention-days: 7
