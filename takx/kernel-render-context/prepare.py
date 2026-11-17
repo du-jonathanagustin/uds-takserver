@@ -104,6 +104,10 @@ def load_contract():
         raise ValueError('owned source patch/scope differs')
     if scope['patch_sha256'] != lock['context_patch_sha256']:
         raise ValueError('source scope patch differs')
+    if lock['binding_state_control'] != {
+            'path': 'tests/BindingStateTest.java', 'assertions': 88,
+            'sha256': digest(regular(HERE/'tests/BindingStateTest.java'))}:
+        raise ValueError('owned binding state control differs')
     required_client = {
         'takkernel/engine/src/main/jni/interop/feature/Interop.cpp',
         'takkernel/engine/src/main/jni/jscenelayer.cpp',

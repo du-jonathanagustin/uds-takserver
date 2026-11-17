@@ -2025,10 +2025,10 @@ index c9e8a25..80726a0 100644
              }
 diff --git a/b/takkernel/engine/src/main/java/com/atakmap/map/opengl/RenderContextBinding.java b/takkernel/engine/src/main/java/com/atakmap/map/opengl/RenderContextBinding.java
 new file mode 100644
-index 0000000..bc0e7e4
+index 0000000..9fa9c4a
 --- /dev/null
 +++ b/takkernel/engine/src/main/java/com/atakmap/map/opengl/RenderContextBinding.java
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,223 @@
 +// Copyright 2026 uds-takserver authors
 +// SPDX-License-Identifier: GPL-3.0-only
 +package com.atakmap.map.opengl;
@@ -2176,12 +2176,26 @@ index 0000000..bc0e7e4
 +        }
 +        // During release, the owning GL thread drains this queue synchronously.
 +        synchronized (this) { if (draining || quiescing) return; }
-+        target.queueEvent(task);
++        try {
++            target.queueEvent(task);
++        } catch (RuntimeException | Error failure) {
++            task.withdraw();
++            throw failure;
++        }
 +    }
 +    private final class Task implements Runnable {
 +        private Runnable work;
 +        private final long epoch;
 +        Task(Runnable work, long epoch) { this.work=work; this.epoch=epoch; }
++        void withdraw() {
++            synchronized (RenderContextBinding.this) {
++                // Task.run claims work under this same monitor. A delegate
++                // failure cannot undo work that already started or completed.
++                if (work == null) return;
++                work=null;
++                pending.remove(this);
++            }
++        }
 +        @Override public void run() {
 +            final Runnable actual;
 +            synchronized (RenderContextBinding.this) {

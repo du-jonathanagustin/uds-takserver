@@ -1,7 +1,7 @@
 {
   "status": "source-work-in-progress-not-runtime-qualified",
   "upstream_commit": "9f6893dd657feacc35ec5de03dad721c2e44170e",
-  "patch_sha256": "5c476d9ee13e5f28c671acaa881dbc434c018f9ab2a776b33e83d03f2302e48b",
+  "patch_sha256": "0371e8d01a89f5125466865f346043d4623e85c6f0696999da7f5596f4f1703c",
   "files": [
     {
       "path": "takkernel/engine/src/jre/java/gov/tak/platform/engine/JOGLRenderContext.java",
@@ -151,7 +151,7 @@
     {
       "path": "takkernel/engine/src/main/java/com/atakmap/map/opengl/RenderContextBinding.java",
       "preimage_sha256": null,
-      "postimage_sha256": "b9a98b11111013f915387ada2b1224738824e9c588a91704bc70b86c23c81de2"
+      "postimage_sha256": "dff5bcfdf4843c89513d5ddfad17c35f8272245933620052f6af6eebda1e3783"
     },
     {
       "path": "takkernel/engine/src/main/java/com/atakmap/opengl/GLES20FixedPipeline.java",
