@@ -224,6 +224,37 @@ os.execv({self.real_git!r}, [{self.real_git!r}, *args])
                 self.assertEqual(committed.stdout, self.expected_tag(name))
                 self.assertNotEqual(committed.stdout, initial)
 
+    def test_inputs_match_build_labels_without_fetch_build_or_hash_tools(self):
+        self.hash_tools('missing')
+        for name in NAMES:
+            with self.subTest(name=name):
+                result = self.run_script(name, '--inputs')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                tree = self.git('rev-parse', f'HEAD:{RECIPES}/{name}')
+                prefix = self.git('rev-parse', 'HEAD:upstream/' + SOURCES[name]) + '-' if name in SOURCES else ''
+                self.assertEqual(result.stdout, prefix + tree + '\n')
+                self.assertFalse(self.runtime_log.exists())
+                path = self.root / RECIPES / name / 'recipe.txt'
+                path.write_text('dirty recipe\n')
+                dirty = self.run_script(name, '--inputs')
+                self.assertEqual(dirty.returncode, 0, dirty.stderr)
+                self.assertEqual(dirty.stdout, prefix + tree + '-dirty\n')
+
+    def test_inputs_reject_source_drift_and_propagate_git_errors_without_stdout(self):
+        self.hash_tools('normal')
+        for name in NAMES:
+            for fault in ('tree', 'recipe-status') + (('pin', 'source-status', 'source-head') if name in SOURCES else ()):
+                with self.subTest(name=name, fault=fault):
+                    result = self.run_script(name, '--inputs', fault)
+                    self.assert_stopped(result, '--inputs')
+                    self.assertEqual(result.stdout, '')
+        for name, source in SOURCES.items():
+            path = self.root / 'upstream' / source / ('Dockerfile' if name == 'cloudtak' else 'src/build.gradle')
+            path.write_text('dirty source\n')
+            result = self.run_script(name, '--inputs')
+            self.assert_stopped(result, '--inputs')
+            self.assertEqual(result.stdout, '')
+
 
 if __name__ == '__main__':
     unittest.main()

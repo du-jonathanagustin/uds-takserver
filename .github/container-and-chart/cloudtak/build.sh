@@ -21,6 +21,7 @@
 #                                this commit's inputs (WAIT_SECONDS, default
 #                                5400). Needs no submodule checkout
 #   build.sh --tag               print <version>-<key> for this commit
+#   build.sh --inputs            print the exact input label without fetching
 #
 # The inputs label is the submodule commit plus the git tree of this
 # directory. A change to either one makes a new image. <key> is the first 12
@@ -97,6 +98,23 @@ write_version_tag() {
 }
 
 version="$(git -C "${root}" config -f .gitmodules submodule.upstream/cloudtak.branch)"
+
+if [[ "${1:-}" = "--inputs" ]]; then
+  sha="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)"
+  tree="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
+  recipe_status="$(git -C "${root}" status --porcelain -- .github/container-and-chart/cloudtak)"
+  if [[ -n "${recipe_status}" ]]; then tree="${tree}-dirty"; fi
+  if [[ -e "${root}/upstream/cloudtak/.git" ]]; then
+    actual="$(git -C "${root}/upstream/cloudtak" rev-parse HEAD)"
+    source_status="$(git -C "${root}/upstream/cloudtak" status --porcelain --untracked-files=no)"
+    if [[ "${actual}" != "${sha}" || -n "${source_status}" ]]; then
+      echo "upstream/cloudtak differs from its clean pinned source." >&2
+      exit 1
+    fi
+  fi
+  printf '%s\n' "${sha}-${tree}"
+  exit 0
+fi
 
 if [[ "${1:-}" = "--tag" ]]; then
   sha="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)"

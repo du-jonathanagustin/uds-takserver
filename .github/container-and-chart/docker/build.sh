@@ -22,6 +22,7 @@
 # out here if it is empty (a clone without --recurse-submodules).
 #
 #   build.sh --tag   build nothing. Print <version>-<key> for this commit.
+#   build.sh --inputs  print the exact input label without fetching or building.
 #
 # The images carry the label dev.uds-takserver.inputs: the pinned
 # upstream/takserver commit plus the git tree of this directory. <key> is the
@@ -45,6 +46,23 @@ input_key() {
     return 1
   fi
 }
+
+if [[ "${1:-}" = "--inputs" ]]; then
+  sha="$(git -C "${root}" rev-parse HEAD:upstream/takserver)"
+  tree="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/docker)"
+  recipe_status="$(git -C "${root}" status --porcelain -- .github/container-and-chart/docker)"
+  if [[ -n "${recipe_status}" ]]; then tree="${tree}-dirty"; fi
+  if [[ -e "${root}/upstream/takserver/.git" ]]; then
+    actual="$(git -C "${root}/upstream/takserver" rev-parse HEAD)"
+    source_status="$(git -C "${root}/upstream/takserver" status --porcelain)"
+    if [[ "${actual}" != "${sha}" || -n "${source_status}" ]]; then
+      echo "upstream/takserver differs from its clean pinned source." >&2
+      exit 1
+    fi
+  fi
+  printf '%s\n' "${sha}-${tree}"
+  exit 0
+fi
 
 if [[ "${1:-}" = "--tag" ]]; then
   sha="$(git -C "${root}" rev-parse HEAD:upstream/takserver)"

@@ -21,6 +21,7 @@
 #                                this commit's inputs (WAIT_SECONDS, default
 #                                5400)
 #   build.sh --tag               print <version>-<key> for this commit
+#   build.sh --inputs            print the exact input label without building
 #
 # The inputs label is the git tree of this directory, so a change to the
 # Dockerfile or the init script makes a new image. <key> is the first 12 hex
@@ -67,6 +68,10 @@ inputs="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/postgis)"
 recipe_status="$(git -C "${root}" status --porcelain -- .github/container-and-chart/postgis)"
 if [[ -n "${recipe_status}" ]]; then
   inputs="${inputs}-dirty"
+fi
+if [[ "${1:-}" = "--inputs" ]]; then
+  printf '%s\n' "${inputs}"
+  exit 0
 fi
 key="$(input_key "${inputs}")"
 image="${registry}/postgis:${version}-${key}"
