@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -53,6 +54,24 @@ class CandidateConsumerTests(unittest.TestCase):
             self.assertEqual(origin['artifact_id'], 56)
             resolve.assert_called_once()
             published.assert_not_called()
+
+    def test_ready_checks_failed_arm_before_waiting_for_pending_amd(self):
+        calls = []
+        def acquire(group, arch, context, directory, load=False, timeout=10800, wait=True):
+            calls.append(arch)
+            if arch == 'amd64':
+                if wait:
+                    raise AssertionError('blocked on pending amd64 before inspecting failed arm64')
+                raise CANDIDATE.ARTIFACTS.Pending('canonical native candidate build is still running')
+            raise ValueError('canonical arm64 native candidate build failed')
+        with patch.object(sys, 'argv', ['candidate-consumer.py', 'ready', '--group', 'takserver']), \
+             patch.object(CANDIDATE.ARTIFACTS, 'context_from_environment', return_value=self.context), \
+             patch.object(CANDIDATE, 'acquire', side_effect=acquire), \
+             patch.object(CANDIDATE.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, 'arm64 native candidate build failed'):
+                CANDIDATE.main()
+            self.assertEqual(calls, ['amd64', 'arm64'])
+            sleep.assert_not_called()
 
     def test_published_immutable_reuse_requires_verified_producer_path_exclusion(self):
         with patch.object(CANDIDATE, 'identity', return_value=self.expected), \

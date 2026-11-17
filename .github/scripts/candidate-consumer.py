@@ -108,7 +108,7 @@ def verify_loaded(ref, expected, config_digest):
             'loaded candidate image inputs mismatch')
 
 
-def acquire(group, arch, context, directory, load=False, timeout=10800):
+def acquire(group, arch, context, directory, load=False, timeout=10800, wait=True):
     expected = identity(group, arch, context)
     api = ARTIFACTS.GitHub(context['repository'], os.environ.get('GH_TOKEN', ''))
     try:
@@ -125,7 +125,10 @@ def acquire(group, arch, context, directory, load=False, timeout=10800):
                 verify_loaded(image['source'], expected, image['config_digest'])
                 image['loaded_ref'] = image['source']
         return expected, published, {'kind': 'published-immutable'}
-    artifact, expected = ARTIFACTS.resolve(api, context, group, arch, timeout=timeout)
+    if wait:
+        artifact, expected = ARTIFACTS.resolve(api, context, group, arch, timeout=timeout)
+    else:
+        artifact, expected = ARTIFACTS.resolve_once(api, context, group, arch)
     directory = directory.with_name(directory.name + '-' + uuid.uuid4().hex[:8])
     cache = artifact['name'].startswith('candidate-cache-')
     if cache:
@@ -168,6 +171,29 @@ def export_cache(directory):
                'inputs': expected['inputs'], 'tag': expected['tag'], 'platforms': values}
     directory.mkdir(parents=True, mode=0o700)
     (directory / 'cache.json').write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
+
+
+def ready(group, arches, context, directory, timeout):
+    started = time.monotonic()
+    deadline = started + timeout
+    while True:
+        pending = []
+        # Inspect every required architecture before waiting. A running AMD
+        # build must not hide a terminal ARM failure in the same native gate.
+        for arch in arches:
+            try:
+                acquire(group, arch, context, directory / (group + '-' + arch), wait=False)
+            except ARTIFACTS.Pending as error:
+                pending.append(str(error))
+        if not pending:
+            for arch in arches:
+                print(f"candidate-consumer: {group} linux/{arch} ready for {context['head_sha']}")
+            return
+        now = time.monotonic()
+        require(now < deadline and (now - started < 90 or not any('not been scheduled' in reason for reason in pending)),
+                '; '.join(pending))
+        print(f"candidate-consumer: waiting for {group}: {'; '.join(pending)}", flush=True)
+        time.sleep(min(15, max(0, deadline - now)))
 
 
 def verify_cache(decision, expected):
@@ -420,6 +446,9 @@ def main():
     require(args.group is not None, 'native candidate group is required')
     context = ARTIFACTS.context_from_environment()
     arches = [args.architecture] if args.architecture else ['amd64', 'arm64']
+    if args.command == 'ready':
+        ready(args.group, arches, context, args.state.parent, args.timeout)
+        return
     for arch in arches:
         if args.command == 'load':
             require(arch == native_architecture(), 'candidate load must use the native architecture')
