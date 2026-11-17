@@ -57,6 +57,7 @@ public final class ContourGrid {
         check(cancelled);
         if (min == Double.POSITIVE_INFINITY || min == max) {
             report(progress, 100);
+            check(cancelled);
             return List.of();
         }
         double first = Math.ceil((min - baseMeters) / intervalMeters);
@@ -111,8 +112,8 @@ public final class ContourGrid {
             }
             report(progress, (int) ((offset + 1) * 100 / count));
         }
-        check(cancelled);
         if (count == 0) report(progress, 100);
+        check(cancelled);
         return List.copyOf(result);
     }
 
@@ -177,7 +178,8 @@ public final class ContourGrid {
         if (points.isEmpty() || !points.get(points.size() - 1).equals(point)) points.add(point);
     }
     private static void check(BooleanSupplier cancelled) {
-        if (cancelled != null && cancelled.getAsBoolean()) throw new CancellationException("contour generation cancelled");
+        if (Thread.currentThread().isInterrupted() || cancelled != null && cancelled.getAsBoolean())
+            throw new CancellationException("contour generation cancelled");
     }
     private static void report(IntConsumer progress, int value) { if (progress != null) progress.accept(value); }
 }

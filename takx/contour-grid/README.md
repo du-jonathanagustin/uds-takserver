@@ -5,6 +5,22 @@ meters on a regular WGS84 grid. This is a separate project implementation under
 `gov.tak.project.contour`; it does not supply missing `gov.tak.api.contour` types
 or qualify the complete TAKX 5.8 Platform/Client.
 
+## Current cancellation candidate
+
+The current source checks thread interruption without clearing the interrupt flag,
+including when no cancellation supplier is provided. It also rechecks cancellation
+after final progress callbacks for flat, all-no-data and zero-level grids. These
+paths previously could return an empty result after a callback requested cancellation.
+
+Thirteen added assertions bring the grid controls to 878 and the combined grid/clip
+inventory to 1,258. An actual macOS ARM64 Temurin 17.0.20+8 compile and both control
+executions pass with `-Xcheck:jni`; the new regression fails against the preceding
+grid source. That local execution does not match this producer's pinned Linux JDK
+and is not a new qualified producer receipt. The historical receipts below retain
+their original source hashes and 865/380 control counts. The changed producer and
+adjacent native elevation consumer still require their own exact-source replays;
+all broad acceptance flags remain false.
+
 Every cell is split along its northwest/southeast diagonal and interpolated
 linearly in each triangle. Shared grid edges establish connectivity without
 rounding-based coordinate joins. Open paths and closed rings are stitched,
@@ -21,7 +37,7 @@ callbacks are synchronous; cancellation or a callback error returns no partial
 result. Levels are ascending and progress is monotonic. Intervals below numeric
 resolution and overflowing level indices refuse generation.
 
-The 865 analytic controls cover planes, closed hill rings, no-data gaps,
+The original 865 analytic controls cover planes, closed hill rings, no-data gaps,
 triangulated saddles, flat fields, exact-level ridges, all 81 ternary 2x2 grids,
 immutable output, cancellation, primary callback identity, work/numeric bounds
 and overflow-resistant interpolation. This validates the mathematical grid
@@ -69,7 +85,7 @@ and returns immutable line/point collections. Input/output vertices and input
 line counts are bounded. Cancellation or a progress callback error returns no
 partial result. Boundary clamping also handles subnormal arithmetic at an edge.
 
-The updated source-locked producer runs 865 grid checks and 380 clipping checks,
+The earlier source-locked producer ran 865 grid checks and 380 clipping checks,
 1,245 in total, with zero strict JNI diagnostics. Clipping includes all 81
 ordered pairs of a 3×3 endpoint lattice against an independent breakpoint/
 midpoint visibility oracle, plus closed-loop joins, corner contact, duplicates,
