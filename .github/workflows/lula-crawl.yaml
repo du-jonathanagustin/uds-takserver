@@ -82,7 +82,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive="${RUNNER_TEMP}/lula2-0.9.5.tgz"
+          tools="${RUNNER_TEMP}/lula-tools"
+          mkdir -p "${tools}"
+          cp .github/lula/package.json .github/lula/package-lock.json "${tools}/"
+          archive="${tools}/lula2-0.9.5.tgz"
           curl --fail --silent --show-error --location --max-time 60 --max-filesize 4194304 \
             https://registry.npmjs.org/lula2/-/lula2-0.9.5.tgz -o "${archive}"
           python3 - "${archive}" <<'PY'
@@ -92,8 +95,8 @@ jobs:
           spec.loader.exec_module(module)
           module.verify_archive(pathlib.Path(sys.argv[1]))
           PY
-          npm install --ignore-scripts --no-bin-links --no-audit --no-fund \
-            --prefix "${RUNNER_TEMP}/lula-tools" "${archive}"
+          npm ci --ignore-scripts --no-bin-links --no-audit --no-fund \
+            --prefix "${tools}"
           python3 .github/lula/patch_crawl.py --archive "${archive}" \
             "${RUNNER_TEMP}/lula-tools/node_modules/lula2/dist/index.js" \
             "${RUNNER_TEMP}/lula-tools/node_modules/lula2/dist/index.safe.mjs"

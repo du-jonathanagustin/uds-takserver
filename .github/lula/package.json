@@ -1,0 +1,9 @@
+{
+  "name": "uds-lula-comment-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "dependencies": {
+    "lula2": "file:lula2-0.9.5.tgz"
+  }
+}

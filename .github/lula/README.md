@@ -48,7 +48,22 @@ python3 .github/lula/patch_crawl.py --archive /verified/lula2-0.9.5.tgz \
 The helper verifies Secure Hash Algorithm (SHA) checksums: SHA-512 for the archive
 and SHA-256 for original source. It rejects changed source and existing output.
 It makes no network requests, installs no dependencies and executes no generated
-code. Pinning the package version does not freeze every indirect dependency.
+code.
+
+The committed `package.json` and npm `package-lock.json` freeze the installed
+runtime, including indirect dependencies. The workflow copies both files to a
+temporary tools directory, downloads the official archive there, verifies its
+independent `source.lock.json` checksum, and runs `npm ci` with installation
+scripts and executable links disabled. The lock binds that same local archive
+to its SHA-512 integrity; registry dependencies have exact versions, archive
+URLs and integrity hashes. No new dependency graph is resolved during a crawl.
+
+To refresh the runtime lock, place the verified official archive beside a copy
+of `package.json` in an empty temporary directory. With the workflow's Node
+version, run `npm install --package-lock-only --ignore-scripts --no-bin-links
+--no-audit --no-fund` there and review the resulting `package-lock.json` before
+copying it here. Reinstall with `npm ci`, reapply the safety patch and run the
+crawler controls. Do not commit the downloaded archive or installed modules.
 
 Manual and `pull_request_target` runs share one queue per pull request. Checkout
 is the immutable trusted `github.sha`: the base commit for the automatic event and the guarded main run commit for manual dispatch. The workflow

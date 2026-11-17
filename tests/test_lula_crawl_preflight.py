@@ -4,11 +4,13 @@
 import base64
 import importlib.util
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -58,12 +60,50 @@ class CrawlPreflight(unittest.TestCase):
         self.assertNotIn("GITHUB_TOKEN", prepare.get("env", {}))
         self.assertIn("--ignore-scripts", prepare["run"])
         self.assertIn("module.verify_archive", prepare["run"])
-        self.assertLess(prepare["run"].index("module.verify_archive"), prepare["run"].index("npm install"))
+        self.assertLess(prepare["run"].index("module.verify_archive"), prepare["run"].index("npm ci"))
+        self.assertNotIn("npm install", prepare["run"])
+        self.assertIn("--no-bin-links", prepare["run"])
+        self.assertIn("cp .github/lula/package.json .github/lula/package-lock.json", prepare["run"])
         preflight = next(s for s in job["steps"] if "existing mapped baseline" in s["name"])
         self.assertIn(".github/scripts/lula-crawl-preflight.py", preflight["run"])
         self.assertIn("--automatic", preflight["run"])
         for step in job["steps"][job["steps"].index(preflight)+1:]:
             self.assertEqual(step["if"], "steps.preflight.outputs.ready == 'true'")
+
+    def test_runtime_lock_binds_the_official_archive_and_every_dependency(self):
+        source = json.loads((ROOT / ".github/lula/source.lock.json").read_text())
+        manifest = json.loads((ROOT / ".github/lula/package.json").read_text())
+        lock = json.loads((ROOT / ".github/lula/package-lock.json").read_text())
+        self.assertTrue(manifest["private"])
+        self.assertEqual(lock["lockfileVersion"], 3)
+        self.assertEqual(lock["packages"][""]["dependencies"], manifest["dependencies"])
+        self.assertEqual(manifest["dependencies"], {"lula2": "file:lula2-0.9.5.tgz"})
+        lula = lock["packages"]["node_modules/lula2"]
+        self.assertEqual(lula["version"], source["version"])
+        self.assertEqual(lula["resolved"], manifest["dependencies"]["lula2"])
+        self.assertEqual(lula["integrity"], source["tarballIntegrity"])
+        for path, package in lock["packages"].items():
+            if not path:
+                continue
+            with self.subTest(package=path):
+                self.assertFalse(package.get("link", False))
+                self.assertRegex(package["version"], r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
+                if package.get("inBundle"):
+                    # Bundled modules are bytes inside a locked parent archive,
+                    # rather than separately fetched registry packages.
+                    parent, name = path.rsplit("/node_modules/", 1)
+                    owner = lock["packages"][parent]
+                    self.assertIn(name, owner["bundleDependencies"])
+                    self.assertTrue(owner["integrity"].startswith("sha512-"))
+                    continue
+                self.assertTrue(package["integrity"].startswith("sha512-"))
+                self.assertEqual(len(base64.b64decode(package["integrity"][7:], validate=True)), 64)
+                if path != "node_modules/lula2":
+                    resolved = urlsplit(package["resolved"])
+                    self.assertEqual((resolved.scheme, resolved.netloc), ("https", "registry.npmjs.org"))
+                    self.assertIsNone(resolved.username)
+                    self.assertFalse(resolved.query or resolved.fragment)
+                    self.assertIsNotNone(re.fullmatch(r"/@?[A-Za-z0-9_./-]+\.tgz", resolved.path))
 
     def test_supported_boundary_passes(self):
         PREFLIGHT.validate(self.pr, self.baseline, "owner/repo")
