@@ -1,10 +1,50 @@
 # Render-context project variant qualification
 
-Status: experimental source profile. Native linking/static audits and five CPU
-Java Native Interface (JNI) controls have passed locally. Headed OpenGL lifecycle
-remains unqualified.
+Status: experimental source profile. The queue-rejection candidate below has
+pure-Java state controls only. Earlier native/static/JNI and headed receipts
+retain their original source scope; the new composition is not qualified by them.
+Headed OpenGL lifecycle remains unqualified.
 The actual upstream identity remains Kernel 8.30.5 at official commit
 9f6893dd657feacc35ec5de03dad721c2e44170e.
+
+## Queue-submission rejection candidate
+
+The current Java binding withdraws only its still-pending task when the delegate
+throws from `queueEvent`. Previously the caller received a rejection but a later
+release drain could execute that same work. The real JOGL delegate rejects after
+its dispose callback marks it retired, while its captured old context remains
+current for the client's subsequent renderer release callback.
+
+Withdrawal and `Task.run` claim synchronize on the binding monitor. Withdrawal
+clears that envelope's work and removes only that envelope from the pending
+queue. An envelope already posted before a delegate throws becomes inert, even
+after generation retirement. Work already claimed inline or by a concurrent
+drain cannot be undone and may finish once; the failure never replays it. The
+original unchecked throwable is rethrown unchanged. Callback counters, generation,
+current-context checks and release/rebind guards retain their existing behavior.
+
+The expanded owned `BindingStateTest` passes 88 assertions. It covers original
+state transitions plus rejection before enqueue, enqueue then throw, identical
+Runnable objects in distinct envelopes, accepted sibling order, inline user
+failure, inline completion followed by delegate failure, activation failure before
+claim, recovery, and an in-flight submission claimed by release before rejection.
+Both RuntimeException and Error paths are exercised. Against the unchanged prior
+binding, the same expanded control fails assertion 43 when rejected work is
+drained. These are pure Java controls using the candidate production binding and
+the genuine public Kernel interfaces/dependencies, with the existing explicit
+test activation seam. No replacement API classes or project JNI/GL are exercised.
+Empty `-Xcheck:jni` diagnostics therefore do not qualify native JNI behavior.
+The same 88 assertions pass on the checksum-bound macOS ARM64 Temurin17 JDK and
+native Linux ARM64 in the recorded official Temurin17 container. Local receipt:
+`e021188391893a311cb16694ddb11ff595b53b17da318fe6da3624a9c8488d87`.
+It binds 26 consumed input identities and 80 retained output hashes. Fifteen
+offline source/producer guards and the exact new-file patch replay also pass.
+
+This changes the binding postimage, context patch/scope and composed source lock.
+Earlier native, complete-Java, headed and client receipts below remain historical
+evidence for their original source identities. They do not qualify this new
+composition. A complete composed Java/native pairing and lifecycle replay remain
+pending; all native-builder, GPU, SDK and client acceptance flags remain false.
 
 ## Bounded worker retirement regression
 

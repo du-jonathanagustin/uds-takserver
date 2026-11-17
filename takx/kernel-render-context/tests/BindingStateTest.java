@@ -18,7 +18,7 @@ public final class BindingStateTest {
         try { action.run(); throw new AssertionError("accepted illegal transition"); }
         catch (IllegalStateException expected) { assertions++; }
     }
-    static final class Context implements RenderContext<RenderSurface> {
+    static class Context implements RenderContext<RenderSurface> {
         final List<Runnable> queued = new ArrayList<>();
         boolean current = true;
         final Thread owningThread=Thread.currentThread();
@@ -44,6 +44,130 @@ public final class BindingStateTest {
         public boolean detach() { return false; }
         public boolean isMainContext() { return true; }
         public RenderSurface getRenderSurface() { return surface; }
+    }
+    static final class SubmissionContext extends Context {
+        Throwable failure;
+        boolean inline, enqueueBeforeFailure;
+        @Override public void queueEvent(Runnable task) {
+            if (inline) task.run();
+            else if (failure == null || enqueueBeforeFailure) super.queueEvent(task);
+            if (failure != null) throwFailure(failure);
+        }
+    }
+    private static void throwFailure(Throwable failure) {
+        if (failure instanceof RuntimeException error) throw error;
+        throw (Error)failure;
+    }
+    private static void failsWith(Throwable expected, Runnable action) {
+        try { action.run(); throw new AssertionError("failure missing"); }
+        catch (RuntimeException | Error actual) { check(actual == expected); }
+    }
+    private static void release(RenderContextBinding binding) {
+        binding.beginRelease(); binding.drain(); binding.retire();
+        check(binding.released());
+    }
+    private static void submissionFailures() {
+        for (Throwable failure : new Throwable[]{new IllegalStateException("delegate failure"), new AssertionError("delegate error")}) {
+            // Rejected work must not remove an accepted envelope carrying the
+            // very same Runnable object, or reorder accepted siblings.
+            SubmissionContext ordered = new SubmissionContext();
+            RenderContextBinding binding = new RenderContextBinding(ordered, () -> {});
+            List<String> calls = new ArrayList<>();
+            Runnable same = () -> calls.add("same");
+            binding.queueEvent(same);
+            ordered.failure=failure;
+            failsWith(failure, () -> binding.queueEvent(same));
+            ordered.failure=null;
+            binding.queueEvent(() -> calls.add("last"));
+            release(binding);
+            check(calls.equals(List.of("same", "last")));
+            for (Runnable envelope : ordered.queued) envelope.run();
+            check(calls.equals(List.of("same", "last")));
+
+            SubmissionContext enqueued = new SubmissionContext();
+            enqueued.failure=failure; enqueued.enqueueBeforeFailure=true;
+            RenderContextBinding posted = new RenderContextBinding(enqueued, () -> {});
+            int[] runs={0};
+            failsWith(failure, () -> posted.queueEvent(() -> runs[0]++));
+            check(enqueued.queued.size()==1);
+            enqueued.queued.get(0).run(); // canceled while the binding is live
+            check(runs[0]==0);
+            release(posted);
+            enqueued.queued.get(0).run(); // canceled after generation retirement
+            check(runs[0]==0);
+
+            // An inline callback owns its work before user code runs. Its own
+            // exception and an exception after inline completion cannot replay it.
+            for (boolean userFailure : new boolean[]{true, false}) {
+                SubmissionContext inline = new SubmissionContext(); inline.inline=true;
+                if (!userFailure) inline.failure=failure;
+                RenderContextBinding running = new RenderContextBinding(inline, () -> {});
+                int[] count={0};
+                failsWith(failure, () -> running.queueEvent(() -> {
+                    count[0]++;
+                    if (userFailure) throwFailure(failure);
+                }));
+                check(count[0]==1);
+                inline.failure=null;
+                running.queueEvent(() -> count[0]++);
+                release(running);
+                check(count[0]==2);
+            }
+
+            // Activation may fail before Task.run claims the user's work.
+            SubmissionContext activating = new SubmissionContext(); activating.inline=true;
+            int[] activations={0}, activatedRuns={0};
+            RenderContextBinding activation = new RenderContextBinding(activating, () -> {
+                if (++activations[0]==1) throwFailure(failure);
+            });
+            failsWith(failure, () -> activation.queueEvent(() -> activatedRuns[0]++));
+            check(activatedRuns[0]==0);
+            activation.queueEvent(() -> activatedRuns[0]++);
+            release(activation);
+            check(activations[0]==2 && activatedRuns[0]==1);
+        }
+    }
+    private static void overlappingSubmissionAndRelease() {
+        java.util.concurrent.CountDownLatch entered=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch reject=new java.util.concurrent.CountDownLatch(1);
+        RuntimeException failure=new IllegalStateException("in-flight delegate rejection");
+        Context context=new Context() {
+            @Override public void queueEvent(Runnable task) {
+                entered.countDown();
+                try {
+                    if (!reject.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        throw new AssertionError("release did not complete");
+                } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+                throw failure;
+            }
+        };
+        RenderContextBinding binding=new RenderContextBinding(context, () -> {});
+        int[] calls={0};
+        java.util.concurrent.atomic.AtomicReference<Throwable> result=new java.util.concurrent.atomic.AtomicReference<>();
+        Thread producer=new Thread(() -> {
+            try { binding.queueEvent(() -> calls[0]++); }
+            catch (Throwable error) { result.set(error); }
+        });
+        producer.start();
+        try {
+            check(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            // Drain wins the claim before the delegate reports failure. That
+            // already-started work cannot be undone or later replayed.
+            release(binding);
+        } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+        finally {
+            reject.countDown();
+            try { producer.join(5000); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AssertionError(error); }
+        }
+        check(!producer.isAlive() && result.get()==failure && calls[0]==1);
+        Context replacement=new Context();
+        binding.rebind(replacement);
+        binding.queueEvent(() -> calls[0]++);
+        replacement.queued.get(0).run();
+        check(calls[0]==2);
+        release(binding);
+        check(calls[0]==2);
     }
     public static void main(String[] args) {
         Context old = new Context(), replacement = new Context(), other = new Context();
@@ -90,6 +214,8 @@ public final class BindingStateTest {
             check(live.isAttached());
             rejects(() -> binding.queueEvent(() -> {}));
         }
+        submissionFailures();
+        overlappingSubmissionAndRelease();
         System.out.println("binding state assertions=" + assertions);
     }
 }

@@ -36,6 +36,14 @@ class SourceGuards(unittest.TestCase):
         self.assertFalse(lock['native_builder_integration'])
         self.assertFalse(lock['gpu_qualified'])
 
+    def test_changed_binding_control_refuses_default_verification(self):
+        original = p.regular
+        def read(path, *args, **kwargs):
+            data = original(path, *args, **kwargs)
+            return data + b'\n// changed\n' if Path(path).name == 'BindingStateTest.java' else data
+        with patch.object(p, 'regular', side_effect=read), self.assertRaisesRegex(ValueError, 'binding state control differs'):
+            p.load_contract()
+
     def test_client_jni_requires_its_paired_java_options_image(self):
         original = p.regular
         for mutation in ('missing-java', 'old-java-image'):
