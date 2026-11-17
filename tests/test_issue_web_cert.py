@@ -28,13 +28,14 @@ ANNOTATION = 'uds.dev/web-keystore-sha256'
 
 
 class FakeApi:
-    def __init__(self, directory, ca, key, store=None, location='Secret', deployment=True):
+    def __init__(self, directory, ca, key, store=None, location='Secret', deployment=True, secret_exists=True):
         self.cm = {'binaryData': {'ca.pem': b64(ca)}}
         self.secret = {'admin.pem': base64.b64encode(b'preserve-admin').decode()}
         if store is not None:
             (self.cm['binaryData'] if location == 'ConfigMap' else self.secret)[KEY] = store
         self.ca_key = b64(key)
         self.deployment = deployment
+        self.secret_exists = secret_exists
         self.annotations = {'unrelated': 'keep'}
         self.writes = []
         self.restarts = 0
@@ -57,7 +58,7 @@ class FakeApi:
                 if self.path.endswith('/configmaps/cert-migration'):
                     self.reply(200, api.cm)
                 elif self.path.endswith('/secrets/takserver-certs'):
-                    self.reply(api.secret_error or 200, {'data': api.secret})
+                    self.reply(api.secret_error or (200 if api.secret_exists else 404), {'data': api.secret})
                 elif self.path.endswith('/secrets/takserver-ca-key'):
                     self.reply(200, {'data': {'ca-do-not-share.key': api.ca_key}})
                 elif self.path.endswith('/deployments/takserver-api'):
@@ -68,7 +69,7 @@ class FakeApi:
 
             def write(self):
                 body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-                if self.path.endswith('/secrets'):
+                if self.path.endswith('/secrets') and api.secret_exists:
                     self.reply(409, {})
                     return
                 if self.path.endswith('/deployments/takserver-api') and api.fail_reload:
@@ -84,14 +85,15 @@ class FakeApi:
                             api.cm['binaryData'].pop(name, None)
                         else:
                             api.cm['binaryData'][name] = value
-                elif self.path.endswith('/secrets/takserver-certs'):
+                elif self.path.endswith(('/secrets', '/secrets/takserver-certs')):
                     api.secret = body['data']
+                    api.secret_exists = True
                 else:
                     annotations = body['spec']['template']['metadata']['annotations']
                     if any(api.annotations.get(name) != value for name, value in annotations.items()):
                         api.restarts += 1
                     api.annotations.update(annotations)
-                self.reply(200, body)
+                self.reply(201 if self.path.endswith('/secrets') else 200, body)
 
             do_PATCH = write
             do_POST = write
@@ -117,6 +119,17 @@ class WebCertificateTests(unittest.TestCase):
         cls.fixtures = Path(cls.temporary.name)
         cls.ca_key, cls.ca = make_ca(cls.fixtures, 'ca')
         cls.other_key, cls.other_ca = make_ca(cls.fixtures, 'other')
+        # Explicit historical dates work across OpenSSL versions; recent
+        # releases reject the formerly accepted `x509 -days -1` shortcut.
+        (cls.fixtures / 'index.txt').touch()
+        (cls.fixtures / 'serial').write_text('10\n')
+        ca_config = cls.fixtures / 'ca.cnf'
+        ca_config.write_text(
+            '[ca]\ndefault_ca=issuer\n[issuer]\n'
+            f'database={cls.fixtures}/index.txt\nserial={cls.fixtures}/serial\n'
+            f'new_certs_dir={cls.fixtures}\ncertificate={cls.ca}\nprivate_key={cls.ca_key}\n'
+            'default_md=sha256\npolicy=subject\n[subject]\ncommonName=supplied\n'
+        )
         run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
              '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1',
              '-keyout', str(cls.fixtures / 'server.key'), '-out', str(cls.fixtures / 'server.pem')])
@@ -125,20 +138,40 @@ class WebCertificateTests(unittest.TestCase):
             ('current', 365, FQDN, False), ('expired', -1, FQDN, False),
             ('near-expiry', 1, FQDN, False), ('wrong-san', 365, 'wrong.example.test', False),
             ('wrong-ca', 365, FQDN, True),
+            ('wrong-purpose', 365, FQDN, False), ('cn-only', 365, FQDN, False),
+            ('wildcard-san', 365, '*.takserver.svc.cluster.local', False),
         ):
             key, csr, pem = (cls.fixtures / f'{name}.{suffix}' for suffix in ('key', 'csr', 'pem'))
             run(['openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes', '-subj', f'/CN={host}',
                  '-keyout', str(key), '-out', str(csr)])
             ext = cls.fixtures / 'extensions'
-            ext.write_text(f'basicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:{host}\n')
-            run(['openssl', 'x509', '-req', '-in', str(csr), '-days', str(days), '-set_serial', '10',
-                 '-CA', str(cls.other_ca if other else cls.ca),
-                 '-CAkey', str(cls.other_key if other else cls.ca_key), '-passin', f'pass:{CAPASS}',
-                 '-extfile', str(ext), '-out', str(pem)])
+            purpose = 'clientAuth' if name == 'wrong-purpose' else 'serverAuth'
+            san = '' if name == 'cn-only' else f'subjectAltName=DNS:{host}\n'
+            ext.write_text(f'[leaf]\nbasicConstraints=CA:FALSE\nextendedKeyUsage={purpose}\n{san}')
+            if name == 'expired':
+                run(['openssl', 'ca', '-batch', '-config', str(ca_config), '-in', str(csr),
+                     '-startdate', '20200101000000Z', '-enddate', '20200102000000Z',
+                     '-passin', f'pass:{CAPASS}', '-extfile', str(ext), '-extensions', 'leaf',
+                     '-out', str(pem)])
+            else:
+                run(['openssl', 'x509', '-req', '-in', str(csr), '-days', str(days), '-set_serial', '10',
+                     '-CA', str(cls.other_ca if other else cls.ca),
+                     '-CAkey', str(cls.other_key if other else cls.ca_key), '-passin', f'pass:{CAPASS}',
+                     '-extfile', str(ext), '-extensions', 'leaf', '-out', str(pem)])
             store = cls.fixtures / f'{name}.p12'
             run(['openssl', 'pkcs12', '-export', '-in', str(pem), '-inkey', str(key),
                  '-name', 'takserver-web', '-out', str(store), '-passout', f'pass:{CAPASS}'])
             cls.stores[name] = b64(store)
+        certificate_only = cls.fixtures / 'certificate-only.p12'
+        run(['keytool', '-importcert', '-noprompt', '-alias', 'takserver-web', '-storetype', 'PKCS12',
+             '-keystore', str(certificate_only), '-storepass', CAPASS,
+             '-file', str(cls.fixtures / 'current.pem')])
+        cls.stores['certificate-only'] = b64(certificate_only)
+        wrong_alias = cls.fixtures / 'wrong-alias.p12'
+        run(['openssl', 'pkcs12', '-export', '-in', str(cls.fixtures / 'current.pem'),
+             '-inkey', str(cls.fixtures / 'current.key'), '-name', 'other-alias',
+             '-out', str(wrong_alias), '-passout', f'pass:{CAPASS}'])
+        cls.stores['wrong-alias'] = b64(wrong_alias)
         cls.stores['unreadable'] = base64.b64encode(b'not a keystore').decode()
 
     def setUp(self):
@@ -191,7 +224,8 @@ class WebCertificateTests(unittest.TestCase):
 
     def test_invalid_keystores_are_replaced_in_both_locations(self):
         for location in ('ConfigMap', 'Secret'):
-            for fixture in ('expired', 'near-expiry', 'wrong-san', 'wrong-ca', 'unreadable'):
+            for fixture in ('expired', 'near-expiry', 'wrong-san', 'wrong-ca', 'unreadable',
+                            'wrong-purpose', 'cn-only', 'wildcard-san', 'certificate-only', 'wrong-alias'):
                 with self.subTest(location=location, fixture=fixture):
                     api = self.api(store=self.stores[fixture], location=location)
                     self.renew_and_publish(api)
@@ -206,7 +240,7 @@ class WebCertificateTests(unittest.TestCase):
                                     next(i for i, path in enumerate(paths) if '/deployments/' in path))
 
     def test_initial_install_uses_ca_key_secret_and_tolerates_no_deployment(self):
-        api = self.api(deployment=False)
+        api = self.api(deployment=False, secret_exists=False)
         result = self.execute(api, 'issue-web-cert.sh', ca_file=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         result = self.execute(api, 'split-key-material.sh')
@@ -226,6 +260,16 @@ class WebCertificateTests(unittest.TestCase):
         result = self.execute(api, 'issue-web-cert.sh')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(api.writes, [])
+
+    def test_publication_read_failure_does_not_overwrite_credentials(self):
+        api = self.api(store=self.stores['current'], location='ConfigMap')
+        api.secret_error = 403
+        result = self.execute(api, 'issue-web-cert.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.execute(api, 'split-key-material.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(api.writes, [])
+        self.assertEqual(base64.b64decode(api.secret['admin.pem']), b'preserve-admin')
 
     def test_reload_failure_is_retried_without_reissuing(self):
         api = self.api(store=self.stores['expired'])

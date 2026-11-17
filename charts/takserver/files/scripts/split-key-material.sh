@@ -236,8 +236,11 @@ api_curl -f --cacert "${ca}" -H "Authorization: Bearer ${token}" \
 
 secret_code="$(api_curl -o "${work}/secret.json" -w '%{http_code}' --cacert "${ca}" \
   -H "Authorization: Bearer ${token}" "${api}/secrets/takserver-certs")"
-if [[ "${secret_code}" != "200" ]]; then
+if [[ "${secret_code}" == "404" ]]; then
   : > "${work}/secret.json"
+elif [[ "${secret_code}" != "200" ]]; then
+  echo "Reading Secret takserver-certs returned HTTP ${secret_code}" >&2
+  exit 1
 fi
 
 declare -A merged=()
