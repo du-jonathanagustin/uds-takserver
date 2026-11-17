@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -52,6 +53,41 @@ class Contract(unittest.TestCase):
         self.assertNotIn('Check-Valid-Until=false',' '.join(TRIAL.APT_OPTIONS))
         self.assertNotIn('snapshot.debian',TRIAL.SOURCES)
         self.assertIn('Acquire::Check-Valid-Until=true',TRIAL.APT_OPTIONS)
+
+    def test_failure_facts_are_allowlisted_without_retaining_child_payloads(self):
+        raw = (b'Historical GEOS 3.4.3 source-built PIC and geometry/error controls passed\n'
+               b'test_only_active_true_definitions_count (test_build.IntegerFeatureGuards.test_only_active_true_definitions_count) ... FAIL\n'
+               b'test_foreign (test_build.Foreign.test_foreign) ... ERROR\n'
+               b'ValueError: integer configuration qualification changed\n'
+               b'ValueError: SECRET_PAYLOAD\nFileNotFoundError: SECRET_PAYLOAD\n'
+               b'Ran 18 tests in 2.3s\n\nFAILED (failures=1)\n')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root/'commands.json').write_text('[{"name":"int64-after-arithmetic","args":["SECRET_PAYLOAD"]}]')
+            (root/'int64-after-arithmetic.log').write_text('SECRET_PAYLOAD')
+            (root/'complete.json').write_text('{"unqualified":true}')
+            result = TRIAL.failure_metadata(raw,root,'profile-unit-tests')
+        self.assertNotIn('SECRET_PAYLOAD',json.dumps(result))
+        self.assertEqual(result['reported_test_count'],18)
+        self.assertEqual(len(result['test_statuses']),1)
+        self.assertEqual(result['recipe_failure_codes'],['integer_qualification_changed'])
+        self.assertEqual(result['last_producer_command'],'int64-after-arithmetic')
+        self.assertTrue(result['producer_completion']['present'])
+        self.assertEqual(result['producer_completion']['qualification'],'unqualified_failure_evidence')
+        self.assertFalse(result['qualified_component_result'])
+
+    def test_unknown_commands_bounds_and_symlinks_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root/'commands.json').write_text('[{"name":"untrusted-payload"}]')
+            result = TRIAL.failure_metadata(b'',root,'profile-build')
+            self.assertEqual(result['last_producer_command'],'unknown')
+            self.assertNotIn('untrusted-payload',json.dumps(result))
+            self.assertFalse(result['producer_completion']['present'])
+            (root/'commands.json').unlink()
+            (root/'commands.json').symlink_to(HERE/'lock.json')
+            with self.assertRaises(TRIAL.Rejected):TRIAL.failure_metadata(b'',root,'profile-build')
+            with self.assertRaises(TRIAL.Rejected):TRIAL.failure_metadata(b'x'*(16*1024**2+1),root,'profile-build')
 
 
 if __name__ == '__main__':

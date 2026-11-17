@@ -53,7 +53,8 @@ container runs the unchanged historical profile from read-only source with a
 read-only verified source cache, a new output, read-only root filesystem,
 128 MiB temporary filesystem, **no network**, 1 CPU, 3 GiB and 256 PIDs. Its
 existing 600-second profile deadline, one-job make and existing disk checks
-are preserved. Then all 18 profile tests, including the actual fresh proof,
+are preserved. Profile build and unit tests execute as separate typed stages
+in that same owned container. Then all 18 profile tests, including the actual fresh proof,
 must pass with zero skips. Actual Docker limits, network mode, exit status and
 OOM status are checked. Both owned containers are removed on success or
 failure; no shared image/resource cleanup occurs.
@@ -68,6 +69,14 @@ and a fixed-reason trial outcome. No raw configure, compiler, package or
 unittest log is uploaded. Metadata files are limited to 8 MiB each and retained
 for seven days. A failed trial remains failed and retains no successful
 component result claim.
+
+On profile/test failure, a separate bounded JSON diagnostic names only tests
+present in the fixed source, their fixed status/counts, explicitly allowlisted
+recipe failure codes and last producer command name, unqualified completion-file
+presence and byte/hash identities of private outputs. Counts are reported,
+never inferred by subtracting failures or subcases. Child text, traceback
+payloads, command arguments and raw logs are excluded. This distinguishes a
+producer failure from a fixture failure without upgrading a failed trial.
 
 This can establish native hosted AMD64 component behavior. It does not satisfy
 upstream protected checks, authenticate an image publisher, qualify an SDK or

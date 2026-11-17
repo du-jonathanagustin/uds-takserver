@@ -2,6 +2,7 @@
 # Copyright 2026 uds-takserver authors
 # SPDX-License-Identifier: GPL-3.0-only
 """Fork-only, native-amd64 historical GEOS trial. Raw logs stay private to the job."""
+import ast
 import email.utils
 import hashlib
 import json
@@ -36,6 +37,34 @@ Suites: trixie-security
 Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 '''
+PRODUCER_COMMANDS = {'tool-cc','tool-cxx','tool-make','tool-patch','tool-readelf','tool-ar','tool-ranlib','tool-ldd',
+                     'official-patch','configure','source-build','source-install','consumer-compile','positive-geometry',
+                     'strict-pic-link','pic-relocations','runtime-closure','int64-before-config','int64-before-platform',
+                     'int64-probe-compile','int64-before-arithmetic','int64-after-config','int64-after-platform','int64-after-arithmetic'}
+RECIPE_FAILURES = {
+    'command_failed':'native dependency command failed; inspect local bounded log',
+    'command_timeout':'native dependency command timed out',
+    'command_output_bound':'native dependency output exceeds bound',
+    'profile_deadline':'GEOS profile total command deadline exhausted',
+    'toolchain_mismatch':'toolchain differs from historical GEOS profile',
+    'integer_input_unavailable':'missing, nonregular or oversized integer configuration/control',
+    'integer_feature_invalid':'unsupported or conflicting active integer feature',
+    'integer_feature_missing':'no active GEOS 64-bit integer feature',
+    'integer_probe_source_changed':'integer probe source differs from recipe',
+    'integer_control_stale':'stale integer configuration or control',
+    'integer_headers_disagree':'generated integer feature selections disagree',
+    'integer_arithmetic_failed':'real 8-byte signed integer arithmetic control failed',
+    'integer_control_changed':'integer configuration or control changed during qualification',
+    'integer_qualification_changed':'integer configuration qualification changed',
+    'geometry_control_failed':'historical GEOS genuine geometry controls incomplete',
+    'text_relocation':'TEXTREL in historical GEOS',
+    'runtime_fallback':'host GEOS runtime fallback or missing dependency',
+    'runtime_unavailable':'runtime closure unavailable',
+    'source_changed':'untouched GEOS source changed',
+    'installed_or_recipe_changed':'installed GEOS or recipe changed during positive controls',
+    'geometry_source_changed':'positive consumer source changed',
+    'tool_changed':'build tool changed',
+}
 
 
 class Rejected(ValueError):
@@ -111,6 +140,57 @@ def release_identity(raw, now):
             'bytes': len(raw), 'sha256': sha(raw)}
 
 
+def failure_metadata(raw, output, stage):
+    """Retain source-allowlisted failure facts; never child text, paths or payloads."""
+    require(len(raw) <= 16*1024**2, 'diagnostic_output_bound')
+    require(not output.is_symlink() and (not output.exists() or output.is_dir()), 'regular_producer_output_required')
+    def read_input(path, maximum):
+        require(not path.is_symlink() and path.parent.resolve() == output.resolve(), 'regular_diagnostic_input_required')
+        with path.open('rb') as stream:
+            data = stream.read(maximum+1)
+        require(len(data) <= maximum, 'diagnostic_input_bound')
+        return data
+    source = ast.parse((ROOT/'takx/native-geos/test_build.py').read_text())
+    allowed_tests = {'test_build.' + cls.name + '.' + node.name for cls in source.body if isinstance(cls, ast.ClassDef)
+                     for node in cls.body if isinstance(node, ast.FunctionDef) and node.name.startswith('test_')}
+    require(stage in ('profile-build','profile-unit-tests'), 'unknown_failure_stage')
+    text = raw.decode('utf-8', errors='replace')
+    tests = []
+    for line in text.splitlines():
+        match = re.match(r'^ {0,2}test_[A-Za-z0-9_]+ \((test_build\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+)\).*\.\.\. (ok|FAIL|ERROR|skipped)', line)
+        if match and match[1] in allowed_tests:
+            tests.append({'test':match[1],'status':match[2]})
+    counts = re.findall(r'^Ran ([0-9]{1,3}) tests in ',text,re.M)
+    result = {'schema':'uds-geos-680-failure-metadata-v1','stage':stage,'stage_output_bytes':len(raw),'stage_output_sha256':sha(raw),
+              'test_statuses':tests[:128], 'reported_test_count':int(counts[-1]) if counts else None,
+              'recipe_failure_codes':sorted({code for code,message in RECIPE_FAILURES.items() if '\nValueError: '+message+'\n' in '\n'+text}),
+              'producer_completion':{'present':(output/'complete.json').exists(),'qualification':'unqualified_failure_evidence'},
+              'qualified_component_result':False}
+    for name in ('commands.json','complete.json'):
+        path = output/name
+        require(not path.is_symlink(), 'regular_diagnostic_input_required')
+        if path.is_file():
+            data = read_input(path,8*1024**2)
+            if name == 'complete.json':
+                result['producer_completion'].update(bytes=len(data),sha256=sha(data))
+            else:
+                result['producer_commands_identity'] = {'bytes':len(data),'sha256':sha(data)}
+            if name == 'commands.json':
+                commands = json.loads(data)
+                require(type(commands) is list and len(commands) <= 128 and all(type(x) is dict for x in commands), 'diagnostic_command_shape')
+                names = [x.get('name') for x in commands]
+                if 0 < len(names) <= 128:
+                    result['producer_command_count'] = len(names)
+                    result['last_producer_command'] = names[-1] if type(names[-1]) is str and names[-1] in PRODUCER_COMMANDS else 'unknown'
+                    if result['last_producer_command'] in PRODUCER_COMMANDS:
+                        log = output/(result['last_producer_command']+'.log')
+                        require(not log.is_symlink(), 'regular_diagnostic_input_required')
+                        if log.is_file():
+                            data = read_input(log,16*1024**2)
+                            result['last_producer_log'] = {'bytes':len(data),'sha256':sha(data)}
+    return result
+
+
 IDENTITY = r'''
 import hashlib,json,pathlib,shutil,subprocess
 def run(*args):
@@ -157,7 +237,8 @@ def main():
     receipt = {'schema':'uds-geos-680-hosted-result-v1','status':'failed','run_id':run_id,'run_attempt':attempt,
                'source_commit':lock['source_commit'],'native_amd64_component_behavior':False,
                'trusted_publisher_acceptance':False,'sdk_acceptance':False,'security_acceptance':False,
-               'upstream_required_checks_satisfied':False,'raw_logs_in_artifact':False}
+               'upstream_required_checks_satisfied':False,'raw_logs_in_artifact':False,
+               'stages':{'profile-build':'not_started','profile-unit-tests':'not_started'}}
 
     def write(name, value):
         raw = (json.dumps(value, indent=2) + '\n').encode()
@@ -264,16 +345,27 @@ def main():
             (cache/item['sha256']).write_bytes(raw)
         profile_root = private/'profile'; profile_root.mkdir()
         containers.append(consumer)
-        proof = docker('run','--pull=never','--name',consumer,'--network=none','--cpus=1','--memory=3g','--pids-limit=256',
+        docker('run','--detach','--pull=never','--name',consumer,'--network=none','--cpus=1','--memory=3g','--pids-limit=256',
                        '--read-only','--tmpfs','/tmp:rw,size=128m','--workdir','/src',
                        '--volume',str(ROOT)+':/src:ro','--volume',str(cache)+':/cache:ro',
-                       '--volume',str(profile_root)+':/proof:rw',built['Id'],'/bin/sh','-ec',
-                       'python3 -B takx/native-geos/build.py --output /proof/output --cache /cache --cc /usr/bin/gcc-14 --cxx /usr/bin/g++-14; '
-                       'TAKX_NATIVE_GEOS_PROOF=/proof/output python3 -B -m unittest discover -s takx/native-geos -p test_build.py -v', name='fresh-profile-and-tests', timeout=850)
+                       '--volume',str(profile_root)+':/proof:rw',built['Id'],'sleep','infinity',name='proof-create')
+        boundary = json.loads(docker('inspect',consumer,name='proof-initial-boundary'))[0]
+        require(boundary['State']['Running'] is True and boundary['HostConfig']['NetworkMode'] == 'none'
+                and boundary['HostConfig']['Memory'] == 3*1024**3 and boundary['HostConfig']['NanoCpus'] == 10**9
+                and boundary['HostConfig']['PidsLimit'] == 256,'initial_proof_runtime_boundary')
+        receipt['stages']['profile-build'] = 'running'
+        build_output = docker('exec',consumer,'python3','-B','takx/native-geos/build.py','--output','/proof/output','--cache','/cache',
+                              '--cc','/usr/bin/gcc-14','--cxx','/usr/bin/g++-14',name='profile-build',timeout=650)
+        require((profile_root/'output/complete.json').is_file(),'producer_completion_required')
+        receipt['stages']['profile-build'] = 'passed'
+        receipt['stages']['profile-unit-tests'] = 'running'
+        proof = docker('exec','--env','TAKX_NATIVE_GEOS_PROOF=/proof/output',consumer,'python3','-B','-m','unittest','discover',
+                       '-s','takx/native-geos','-p','test_build.py','-v',name='profile-unit-tests',timeout=200)
         state = json.loads(docker('inspect',consumer, name='proof-container-inspect'))[0]
-        require(state['State']['ExitCode'] == 0 and not state['State']['OOMKilled'] and state['HostConfig']['NetworkMode'] == 'none'
+        require(state['State']['Running'] is True and not state['State']['OOMKilled'] and state['HostConfig']['NetworkMode'] == 'none'
                 and state['HostConfig']['Memory'] == 3*1024**3 and state['HostConfig']['NanoCpus'] == 10**9, 'proof_runtime_boundary')
         require(re.search(rb'\nRan 18 tests in [^\n]+\n\nOK\n?$',proof) is not None and b'skipped' not in proof, 'all_18_actual_profile_tests_required')
+        receipt['stages']['profile-unit-tests'] = 'passed'
         complete = json.loads((profile_root/'output/complete.json').read_text())
         require(complete['integer_configuration']['contract'] == 'historical-geos-int64-v1' and complete['geometry_and_error_controls'] is True
                 and complete['strict_pic'] is True, 'incomplete_profile_receipt')
@@ -284,9 +376,23 @@ def main():
         write('geos-complete.json', complete)
         receipt.update(status='passed',native_amd64_component_behavior=True,tests={'run':18,'passed':18,'skipped':0},
                        source_downloads=[{k:x[k] for k in ('url','bytes','sha256')} for x in inputs],
-                       builder_image_id=built['Id'],profile_output_sha256=sha(proof),profile_network='none',cpus=1,memory_bytes=3*1024**3)
+                       builder_image_id=built['Id'],profile_output_sha256=sha(build_output),unit_test_output_sha256=sha(proof),
+                       profile_network='none',cpus=1,memory_bytes=3*1024**3)
     except Exception as error:
         receipt['reason'] = str(error) if isinstance(error, Rejected) else 'unexpected_' + type(error).__name__
+        failed_stage = next((stage for stage,status in receipt['stages'].items() if status == 'running'),None)
+        if failed_stage is not None:
+            receipt['stages'][failed_stage] = 'failed'
+        diagnostic_stage = failed_stage or next((stage for stage in ('profile-unit-tests','profile-build') if (private/(stage+'.log')).is_file()),None)
+        profile_log = private/((diagnostic_stage or 'unknown')+'.log')
+        if profile_log.is_file() and profile_log.stat().st_size <= 16*1024**2:
+            try:
+                require(not profile_log.is_symlink(),'regular_diagnostic_input_required')
+                with profile_log.open('rb') as stream:
+                    raw = stream.read(16*1024**2+1)
+                write('failure-diagnostics.json', failure_metadata(raw,private/'profile/output',diagnostic_stage))
+            except Exception:
+                receipt['failure_metadata_unavailable'] = True
     finally:
         receipt['cleanup'] = []
         for name in reversed(containers):
