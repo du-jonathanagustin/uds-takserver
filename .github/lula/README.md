@@ -50,20 +50,36 @@ and SHA-256 for original source. It rejects changed source and existing output.
 It makes no network requests, installs no dependencies and executes no generated
 code.
 
-The committed `package.json` and npm `package-lock.json` freeze the installed
-runtime, including indirect dependencies. The workflow copies both files to a
-temporary tools directory, downloads the official archive there, verifies its
-independent `source.lock.json` checksum, and runs `npm ci` with installation
-scripts and executable links disabled. The lock binds that same local archive
-to its SHA-512 integrity; registry dependencies have exact versions, archive
-URLs and integrity hashes. No new dependency graph is resolved during a crawl.
+The comment runtime executes the verified standalone `dist/cli/commands/crawl.js`
+module. That module imports only Node's `fs` and `crypto`, `@octokit/rest` and
+`commander`. The full CLI bundle embeds server implementation code and imports
+additional UI, import and export dependencies. The command-only entry point
+`crawl.mjs` runs the standalone module's exported command through Commander.
 
-To refresh the runtime lock, place the verified official archive beside a copy
-of `package.json` in an empty temporary directory. With the workflow's Node
-version, run `npm install --package-lock-only --ignore-scripts --no-bin-links
---no-audit --no-fund` there and review the resulting `package-lock.json` before
-copying it here. Reinstall with `npm ci`, reapply the safety patch and run the
-crawler controls. Do not commit the downloaded archive or installed modules.
+`prepare-runtime.sh` verifies the official archive, installs the committed npm
+lock with installation scripts and executable links disabled, then rechecks the
+archive before extracting the one regular source member. Extraction checks its
+SHA-256 and the two external versions against the verified archive's package
+metadata. The same existing safety patch produces `crawl.safe.mjs`. The
+temporary runtime includes the upstream license and this modification notice.
+The manifest pins the official command's two external dependencies; the lock
+records their complete indirect graph with exact versions, archive URLs and
+integrity hashes. No new dependency graph is resolved during a crawl.
+
+To refresh the runtime lock, copy `package.json` into an empty temporary directory.
+With the workflow's Node version, run `npm install --package-lock-only
+--ignore-scripts --no-bin-links --no-audit --no-fund` there and review the resulting
+`package-lock.json` before copying it here. Reinstall with `npm ci`, reapply the
+safety patch and run the crawler controls. Changes to the command's direct
+dependency versions also require reviewing the verified official archive metadata
+and `source.lock.json`. Do not commit downloaded archives or installed modules.
+
+The read-only validation job runs the same preparation script and executes the
+installed entry point with the real locked Commander and Octokit modules. Its
+HTTP fixture refuses unexpected requests and verifies changed/unchanged mappings,
+read failure, source races, unsupported review mode and unexpected comment
+authors. Existing isolated API controls also cover all posting safeguards. These
+fixtures exercise no live GitHub comment mutation.
 
 Manual and `pull_request_target` runs share one queue per pull request. Checkout
 is the immutable trusted `github.sha`: the base commit for the automatic event and the guarded main run commit for manual dispatch. The workflow

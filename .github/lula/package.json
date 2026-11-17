@@ -4,6 +4,7 @@
   "private": true,
   "license": "GPL-3.0-only",
   "dependencies": {
-    "lula2": "file:lula2-0.9.5.tgz"
+    "@octokit/rest": "22.0.1",
+    "commander": "14.0.3"
   }
 }
