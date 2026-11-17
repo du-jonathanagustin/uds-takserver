@@ -66,8 +66,32 @@ class GitHub:
         require(path.startswith('/repos/' + self.repository + '/actions/') or
                 re.fullmatch('/repos/' + re.escape(self.repository) + r'/pulls/[1-9][0-9]*(?:/files)?(?:\?.*)?', path) is not None,
                 'invalid GitHub candidate API path')
-        return self.opener.open(Request(API + path, headers={'Authorization': 'Bearer ' + self.token,
-                                'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}), timeout=60)
+        try:
+            return self.opener.open(Request(API + path, headers={'Authorization': 'Bearer ' + self.token,
+                                    'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}), timeout=60)
+        except HTTPError as error:
+            # Keep API failures closed, but retain the server's bounded reason
+            # and rate evidence so permission and throttling failures differ.
+            # Never log credentials, redirect URLs or arbitrary response headers.
+            message = 'unavailable'
+            try:
+                raw = error.read(4097)
+                if len(raw) <= 4096:
+                    body = json.loads(raw)
+                    if isinstance(body, dict) and isinstance(body.get('message'), str):
+                        message = body['message'].replace(self.token, '[redacted]')[:512]
+            except (OSError, ValueError, TypeError):
+                pass
+            evidence = []
+            for header, pattern in (('X-RateLimit-Remaining', r'[0-9]{1,12}'),
+                                    ('X-RateLimit-Reset', r'[0-9]{1,12}'),
+                                    ('Retry-After', r'[0-9]{1,6}'),
+                                    ('X-GitHub-Request-Id', r'[A-Za-z0-9:_-]{1,128}')):
+                value = (error.headers or {}).get(header, '')
+                if re.fullmatch(pattern, value):
+                    evidence.append(f'{header}={value}')
+            detail = '; '.join([f'message={json.dumps(message, ensure_ascii=True)}', *evidence])
+            raise ValueError(f'GitHub candidate API GET {urlparse(path).path} returned HTTP {error.code}: {detail}') from error
 
     def get(self, path):
         with self.request(path) as response:

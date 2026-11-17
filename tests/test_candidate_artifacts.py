@@ -4,11 +4,14 @@
 """GitHub provenance is checked independently of a candidate's own receipt."""
 
 import copy
+import io
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 from urllib.request import Request
 import zipfile
 
@@ -155,6 +158,43 @@ class ArtifactIdentityTests(unittest.TestCase):
         self.assertEqual(redirect.get_header('Accept'), 'application/zip')
         with self.assertRaisesRegex(ValueError, 'outside HTTPS'):
             CANDIDATE.NoCredentialRedirect().redirect_request(request, None, 302, 'Found', {}, 'http://blob.example.test/path')
+
+    def test_http_failures_distinguish_rate_and_permission_evidence_without_credentials(self):
+        path = '/repos/upstream/repo/actions/runs?head_sha=' + 'a' * 40
+        for message, headers in (
+                ('API rate limit exceeded for secret-fixture.', {'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1794899999'}),
+                ('You have exceeded a secondary rate limit.', {'Retry-After': '60'}),
+                ('Resource not accessible by integration', {})):
+            api = CANDIDATE.GitHub('upstream/repo', 'secret-fixture')
+            error = HTTPError('https://private.invalid/signed?token=secret-fixture', 403, 'Forbidden',
+                              {**headers, 'X-GitHub-Request-Id': 'ABCD:1234',
+                               'Authorization': 'secret-fixture', 'Location': 'private-redirect-fixture'},
+                              io.BytesIO(json.dumps({'message': message, 'private': 'private-body-fixture'}).encode()))
+            with self.subTest(message=message), patch.object(api.opener, 'open', side_effect=error), \
+                    self.assertRaises(ValueError) as raised:
+                api.get(path)
+            text = str(raised.exception)
+            self.assertIn('GET /repos/upstream/repo/actions/runs returned HTTP 403', text)
+            self.assertIn(message.replace('secret-fixture', '[redacted]'), text)
+            for name, value in headers.items():
+                self.assertIn(f'{name}={value}', text)
+            self.assertIn('X-GitHub-Request-Id=ABCD:1234', text)
+            for private in ('secret-fixture', 'private.invalid', 'private-redirect-fixture', 'private-body-fixture', 'head_sha'):
+                self.assertNotIn(private, text)
+
+    def test_http_failure_diagnostics_bound_untrusted_body_and_header_values(self):
+        for body in (b'<html>private-body-fixture</html>', json.dumps({'message': 'x' * 6000}).encode()):
+            api = CANDIDATE.GitHub('upstream/repo', 'secret-fixture')
+            error = HTTPError('https://api.github.com/fixture', 403, 'Forbidden',
+                              {'X-RateLimit-Remaining': '0\nprivate-header-fixture',
+                               'X-GitHub-Request-Id': 'private-header-fixture\n'}, io.BytesIO(body))
+            with self.subTest(size=len(body)), patch.object(api.opener, 'open', side_effect=error), \
+                    self.assertRaises(ValueError) as raised:
+                api.get('/repos/upstream/repo/actions/runs')
+            text = str(raised.exception)
+            self.assertIn('message="unavailable"', text)
+            self.assertLess(len(text), 256)
+            self.assertNotIn('private-', text)
 
 
 if __name__ == '__main__':
