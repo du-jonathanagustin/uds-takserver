@@ -14,6 +14,12 @@ caller-owned sources. Cancellation is checked between native batches; it cannot
 interrupt a callback already executing inside a native query. The test runner
 separately enforces a hard process deadline.
 
+The current grid dependency includes a new interruption/final-progress cancellation
+correction. Its source hash is explicit in this adapter's lock, but the native
+receipts below predate that change and retain their original frozen inputs. The
+changed composition has not been replayed against the native producer; the local
+macOS pure-Java grid/clip checks do not qualify this adapter or its renderer.
+
 The actual full Native07 composition passes 275 controls with zero strict JNI
 diagnostics. These check analytic-plane contour vertices, bounded coordinates,
 immutable output, monotonic progress, source-type isolation, missing data,

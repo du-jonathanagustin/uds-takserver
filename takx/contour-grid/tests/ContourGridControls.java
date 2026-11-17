@@ -6,6 +6,7 @@ import gov.tak.project.contour.ContourGrid.Point;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
@@ -77,6 +78,29 @@ public final class ContourGridControls {
         AtomicInteger calls = new AtomicInteger();
         BooleanSupplier cancel = () -> calls.incrementAndGet() > 3;
         rejects(() -> ContourGrid.generate(hill, 5, 5, 10, 20, 12, 22, .5, 0, cancel, null), CancellationException.class);
+        // Future.cancel(true) interrupts a worker even without a cancellation supplier.
+        Thread.currentThread().interrupt();
+        try {
+            rejects(() -> generate(hill, 5, 5, .5), CancellationException.class);
+            check(Thread.currentThread().isInterrupted(), "initial interrupt remains set");
+        } finally { Thread.interrupted(); }
+        try {
+            rejects(() -> ContourGrid.generate(hill, 5, 5, 10, 20, 12, 22, .5, 0,
+                    null, p -> Thread.currentThread().interrupt()), CancellationException.class);
+            check(Thread.currentThread().isInterrupted(), "progress interrupt remains set");
+        } finally { Thread.interrupted(); }
+        // Completion progress can cancel even when there are no contours to walk.
+        for (double[] empty : new double[][]{
+                {3, 3, 3, 3}, {Double.NaN, Double.NaN, Double.NaN, Double.NaN}, {.1, .9, .1, .9}}) {
+            AtomicBoolean stopped = new AtomicBoolean();
+            rejects(() -> ContourGrid.generate(empty, 2, 2, 10, 20, 12, 22, 1, 0,
+                    stopped::get, p -> { if (p == 100) stopped.set(true); }), CancellationException.class);
+            try {
+                rejects(() -> ContourGrid.generate(empty, 2, 2, 10, 20, 12, 22, 1, 0,
+                        null, p -> { if (p == 100) Thread.currentThread().interrupt(); }), CancellationException.class);
+                check(Thread.currentThread().isInterrupted(), "empty result interrupt remains set");
+            } finally { Thread.interrupted(); }
+        }
         RuntimeException primary = new RuntimeException("owned callback failure");
         boolean threwPrimary = false;
         try { ContourGrid.generate(hill, 5, 5, 10, 20, 12, 22, .5, 0, null, p -> { throw primary; }); }
