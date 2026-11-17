@@ -75,10 +75,13 @@ Container ordering does not select the target. All identity reads and the exec
 share one three-second snapshot deadline; kubectl requests retain their existing
 two-second request limits. Private Pod JSON is limited to 64 KiB, and lookup
 stdout to 128 bytes; neither an oversized nor partial response is published.
+Global capture termination also stops the snapshot's owned command group and
+emits only an unattributed interruption record.
 The outer kubectl request includes exec establishment; elapsed time includes
 identity observations, process startup and exec transport plus the inner lookup, not pure API GET
 latency.
-No token, kubeconfig or Secret is read, and no diagnostic Pod is created.
+No token, kubeconfig or Secret content is collected or exported, and no diagnostic
+Pod is created.
 Pod responses stay private; environment and other nonidentity fields are not
 exported. Only a stable before/after observation has `identityQualified: true`
 and an attributed `agent` plus a valid Namespace UID when lookup succeeds.

@@ -6,9 +6,12 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
+import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from unittest.mock import patch
 
@@ -184,6 +187,52 @@ print('{UID}', end='')
         self.assertEqual(record['execResult'], 'exec-or-lookup-timeout')
         self.assertFalse(record['identityQualified'])
         self.assertLess(record['elapsed_ms'], 5000)
+
+    def test_outer_termination_cleans_exec_descendants_without_private_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pod = root / 'pod.json'
+            pod.write_text(json.dumps(self.pod()))
+            ready, escaped = root / 'ready', root / 'escaped'
+            child = ("import pathlib,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+                     f"time.sleep(1); pathlib.Path({str(escaped)!r}).touch()")
+            executable = root / 'uds'
+            executable.write_text('#!/usr/bin/env python3\n' + textwrap.dedent(f'''\
+                import pathlib,signal,subprocess,sys,time
+                if 'exec' not in sys.argv:
+                    print(pathlib.Path({str(pod)!r}).read_text())
+                    raise SystemExit(0)
+                signal.signal(signal.SIGTERM,signal.SIG_IGN)
+                subprocess.Popen([sys.executable,'-c',{child!r}])
+                print('never-print-private-exec',file=sys.stderr,flush=True)
+                print('{UID}',end='',flush=True)
+                pathlib.Path({str(ready)!r}).touch()
+                time.sleep(30)
+                '''))
+            executable.chmod(0o755)
+            process = subprocess.Popen([sys.executable, '-B', str(HELPER), str(pod), str(pod)],
+                env={**os.environ, 'PATH': str(root) + ':' + os.environ['PATH']},
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                deadline = time.monotonic() + 2
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(.02)
+                self.assertTrue(ready.exists())
+                process.send_signal(signal.SIGTERM)
+                stdout, stderr = process.communicate(timeout=2)
+                self.assertEqual(process.returncode, 143)
+                record = json.loads(stdout)
+                self.assertEqual(record['result'], 'snapshot-interrupted')
+                self.assertFalse(record['identityQualified'])
+                self.assertNotIn('agent', record)
+                self.assertNotIn('targetUID', record)
+                self.assertEqual(stderr, b'')
+                time.sleep(1.1)
+                self.assertFalse(escaped.exists())
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=2)
 
     def test_identity_reads_and_lookup_share_one_aggregate_deadline(self):
         output = self.invoke(f"import time\ntime.sleep(1)\nprint('{UID}', end='')\n",

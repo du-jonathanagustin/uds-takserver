@@ -4,7 +4,6 @@
 """Postfailure namespace lookup from an existing agent; never historical proof."""
 import json
 import os
-from pathlib import Path
 import re
 import selectors
 import signal
@@ -18,6 +17,14 @@ NAME = r'[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?'
 STARTED = r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z'
 MAX_POD_BYTES = 64 * 1024
 SNAPSHOT_SECONDS = 3
+
+
+class SnapshotInterrupted(Exception):
+    pass
+
+
+def interrupted(_signum, _frame):
+    raise SnapshotInterrupted()
 
 
 def identity(pod):
@@ -165,5 +172,11 @@ def snapshot(path):
 
 if __name__ == '__main__':
     # Caller runs this only after primary evidence, within its existing deadline.
-    for source in sys.argv[1:3]:
-        print(json.dumps(snapshot(source)), flush=True)
+    signal.signal(signal.SIGTERM, interrupted)
+    try:
+        for source in sys.argv[1:3]:
+            print(json.dumps(snapshot(source)), flush=True)
+    except SnapshotInterrupted:
+        print(json.dumps({'snapshot': 'postfailure', 'result': 'snapshot-interrupted',
+                          'identityQualified': False}), flush=True)
+        raise SystemExit(143) from None
