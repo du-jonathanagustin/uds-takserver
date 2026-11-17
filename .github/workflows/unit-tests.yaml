@@ -82,6 +82,11 @@ jobs:
       - name: TakClient revocation endpoint contract
         run: python3 -B -m unittest tests.test_takclient_revocation -v
 
+      - name: Fork candidate bytes, provenance and workflow contracts
+        env:
+          PYYAML_VERSION: 6.0.3
+        run: uv run --no-project --with "pyyaml==${PYYAML_VERSION}" python -B -m unittest tests.test_candidate_images tests.test_candidate_artifacts tests.test_candidate_consumer tests.test_candidate_workflows tests.test_image_tag_portability -v
+
       - name: Android scenario offline guards
         run: python3 -B -m unittest tests.test_android_scenario tests.test_android_hosted_scenario -v
 

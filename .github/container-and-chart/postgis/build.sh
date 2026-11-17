@@ -93,6 +93,13 @@ if [[ "${1:-}" = "--tag" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" = "--wait" && "${GITHUB_EVENT_NAME:-}" = "pull_request" ]]; then
+  fork="$(python3 "${root}/.github/scripts/candidate-consumer.py" is-fork)"
+  if [[ "${fork}" = "true" ]]; then
+    exec python3 "${root}/.github/scripts/candidate-consumer.py" ready --group postgis
+  fi
+fi
+
 # Print "<os>/<arch> <inputs label>" for each platform of an image or index.
 # Attestation entries (unknown/unknown) are skipped.
 published_inputs() {

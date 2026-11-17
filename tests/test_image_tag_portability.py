@@ -3,6 +3,7 @@
 
 """Real image-tag entry points with isolated hash tools and failing producers."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -85,6 +86,7 @@ os.execv({self.real_git!r}, [{self.real_git!r}, *args])
         self.environment = {**os.environ, 'PATH': str(self.binary), 'RUNTIME_LOG': str(self.runtime_log),
                             'PUSH_IMAGES': 'true', 'ARCH': 'arm64', 'PLATFORMS': 'linux/arm64',
                             'CONTAINER_RUNTIME': 'docker', 'GITHUB_REF': 'refs/pull/1/merge',
+                            'GITHUB_EVENT_NAME': 'unit-test',
                             'WRITE_VERSION_TAG': 'false'}
 
     def git(self, *args):
@@ -110,7 +112,10 @@ os.execv({self.real_git!r}, [{self.real_git!r}, *args])
 
     def run_script(self, name, mode='--tag', fault=''):
         self.runtime_log.unlink(missing_ok=True)
-        return subprocess.run([self.bash, str(self.root / RECIPES / name / 'build.sh'), mode],
+        command = [self.bash, str(self.root / RECIPES / name / 'build.sh')]
+        if mode is not None:
+            command.append(mode)
+        return subprocess.run(command,
                               cwd=self.root, env={**self.environment, 'IMAGE_FIXTURE': name,
                                                   'GIT_FAILURE': fault},
                               text=True, capture_output=True, timeout=10)
@@ -254,6 +259,38 @@ os.execv({self.real_git!r}, [{self.real_git!r}, *args])
             result = self.run_script(name, '--inputs')
             self.assert_stopped(result, '--inputs')
             self.assertEqual(result.stdout, '')
+            path.write_text('source input\n')
+            (path.parent / 'untracked-source-input').write_text('unexpected source\n')
+            untracked = self.run_script(name, '--inputs')
+            self.assert_stopped(untracked, '--inputs')
+            self.assertEqual(untracked.stdout, '')
+
+    def test_cloudtak_bake_optional_allow_preserves_arguments_with_bash_nounset(self):
+        self.hash_tools('normal')
+        (self.binary / 'grep').symlink_to(shutil.which('grep'))
+        runtime = self.binary / 'docker'
+        runtime.write_text(f'''#!{sys.executable}
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ['RUNTIME_LOG'], 'a') as log:
+    log.write(json.dumps(args) + '\\n')
+if args == ['buildx', 'bake', '--help']:
+    print('--allow stringArray' if os.environ['BAKE_ALLOW_CAPABILITY'] == 'true' else 'bake help')
+    raise SystemExit(0)
+raise SystemExit(83 if args[:2] == ['buildx', 'bake'] and '--load' in args else 97)
+''')
+        runtime.chmod(0o755)
+        for capability in (False, True):
+            with self.subTest(allow=capability):
+                self.environment['BAKE_ALLOW_CAPABILITY'] = str(capability).lower()
+                result = self.run_script('cloudtak', None)
+                self.assertEqual(result.returncode, 83, result.stdout + result.stderr)
+                calls = [json.loads(line) for line in self.runtime_log.read_text().splitlines()]
+                expected = ['buildx', 'bake', '-f', 'docker-bake.hcl']
+                if capability:
+                    expected += ['--allow', 'fs.read=' + str(self.root)]
+                self.assertEqual(calls, [['buildx', 'bake', '--help'], [*expected, '--load', 'cloudtak']])
+                self.assertNotIn('unbound variable', result.stderr)
 
 
 if __name__ == '__main__':

@@ -106,7 +106,7 @@ if [[ "${1:-}" = "--inputs" ]]; then
   if [[ -n "${recipe_status}" ]]; then tree="${tree}-dirty"; fi
   if [[ -e "${root}/upstream/cloudtak/.git" ]]; then
     actual="$(git -C "${root}/upstream/cloudtak" rev-parse HEAD)"
-    source_status="$(git -C "${root}/upstream/cloudtak" status --porcelain --untracked-files=no)"
+    source_status="$(git -C "${root}/upstream/cloudtak" status --porcelain)"
     if [[ "${actual}" != "${sha}" || -n "${source_status}" ]]; then
       echo "upstream/cloudtak differs from its clean pinned source." >&2
       exit 1
@@ -129,6 +129,12 @@ fi
 # builds the image. They wait for it here instead of reading an old or
 # missing image.
 if [[ "${1:-}" = "--wait" ]]; then
+  if [[ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]]; then
+    fork="$(python3 "${root}/.github/scripts/candidate-consumer.py" is-fork)"
+    if [[ "${fork}" = "true" ]]; then
+      exec python3 "${root}/.github/scripts/candidate-consumer.py" ready --group cloudtak
+    fi
+  fi
   sha="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)"
   tree="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
   inputs="${sha}-${tree}"
@@ -261,12 +267,12 @@ export REGISTRY="${registry}" CLOUDTAK_VERSION="${version}" CLOUDTAK_SRC="${src}
 cd "${here}"
 # The bake file reads the submodule, which is outside this directory.
 # Buildx asks for that read to be granted.
-allow=()
+bake_args=(-f docker-bake.hcl)
 if docker buildx bake --help 2>/dev/null | grep -q -- '--allow'; then
-  allow=(--allow "fs.read=${root}")
+  bake_args+=(--allow "fs.read=${root}")
 fi
 # Load, then patch, then push. Copa needs the image in the local daemon.
-docker buildx bake -f docker-bake.hcl "${allow[@]}" --load cloudtak
+docker buildx bake "${bake_args[@]}" --load cloudtak
 "${root}/.github/scripts/copa-patch.sh" "${image}"
 if [[ "${PUSH_IMAGES:-false}" = "true" ]]; then
   docker push "${image}"

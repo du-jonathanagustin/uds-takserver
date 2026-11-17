@@ -81,6 +81,7 @@ class WorkflowPermissionTests(unittest.TestCase):
             environment = {**os.environ, 'PATH': str(directory) + os.pathsep + os.defpath,
                            'GH_TOKEN': 'fixture-token', 'IMAGE_TAG': 'immutable-fixture',
                            'GITHUB_WORKFLOW': 'Container', 'BUILD_IF_MISSING': 'true',
+                           'CANDIDATE_PRODUCER': 'true',
                            'CHECK_ONCE': 'true', 'PERMISSION_TEST_CALLS': str(calls)}
             result = subprocess.run(['bash', str(ROOT / '.github/scripts/wait-for-tak-images.sh')],
                                     env=environment, cwd=ROOT, capture_output=True, text=True, timeout=15)
