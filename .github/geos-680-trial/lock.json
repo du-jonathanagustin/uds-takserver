@@ -1,0 +1,137 @@
+{
+  "schema": "uds-geos-680-hosted-trial-v1",
+  "source_commit": "7de0765783b130e202fa57067692c8a00ed42b6f",
+  "repository": "du-jonathanagustin/uds-takserver",
+  "branch": "proof/historical-geos-680",
+  "base_manifest_digest": "sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392",
+  "base_config_digest": "sha256:596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+  "base_compressed_bytes": 29856132,
+  "maximum_package_download_bytes": 167772160,
+  "maximum_installed_size_kib": 716800,
+  "requested": [
+    "gcc-14=14.2.0-19",
+    "g++-14=14.2.0-19",
+    "make=4.4.1-2",
+    "binutils=2.44-3",
+    "patch=2.8-2",
+    "python3=3.13.5-1"
+  ],
+  "packages": {
+    "gcc-14": {
+      "Package": "gcc-14",
+      "Version": "14.2.0-19",
+      "Architecture": "amd64",
+      "Filename": "pool/main/g/gcc-14/gcc-14_14.2.0-19_amd64.deb",
+      "Size": "540064",
+      "SHA256": "21500408b5019d8d29f70ce58488e2eea469a1adb4b5fd7db45e819b5efcac4e"
+    },
+    "g++-14": {
+      "Package": "g++-14",
+      "Version": "14.2.0-19",
+      "Architecture": "amd64",
+      "Filename": "pool/main/g/gcc-14/g++-14_14.2.0-19_amd64.deb",
+      "Size": "22544",
+      "SHA256": "4706ab29eab3d81e93582b45b229fdedc71f1eec3071996a448cf2c8beb83f3a"
+    },
+    "gcc-14-x86-64-linux-gnu": {
+      "Package": "gcc-14-x86-64-linux-gnu",
+      "Version": "14.2.0-19",
+      "Architecture": "amd64",
+      "Filename": "pool/main/g/gcc-14/gcc-14-x86-64-linux-gnu_14.2.0-19_amd64.deb",
+      "Size": "21389968",
+      "SHA256": "a17ef039f1ba482051c3efb5c2c24070002e60dd0bd09fd456ec31481a11b725"
+    },
+    "g++-14-x86-64-linux-gnu": {
+      "Package": "g++-14-x86-64-linux-gnu",
+      "Version": "14.2.0-19",
+      "Architecture": "amd64",
+      "Filename": "pool/main/g/gcc-14/g++-14-x86-64-linux-gnu_14.2.0-19_amd64.deb",
+      "Size": "12114812",
+      "SHA256": "c66b009fedd340520279d1af2f91d0668e9f64f0c08fe62179ca1c75e556be58"
+    },
+    "gcc-14-base": {
+      "Package": "gcc-14-base",
+      "Version": "14.2.0-19",
+      "Architecture": "amd64",
+      "Filename": "pool/main/g/gcc-14/gcc-14-base_14.2.0-19_amd64.deb",
+      "Size": "49432",
+      "SHA256": "5b6825de4263824b78c4c51f6476414f3b4e89c2ab63e81dc8b9b5501e867cf6"
+    },
+    "cpp-14-x86-64-linux-gnu": {
+      "Package": "cpp-14-x86-64-linux-gnu",
+      "Version": "14.2.0-19",
+      "Architecture": "amd64",
+      "Filename": "pool/main/g/gcc-14/cpp-14-x86-64-linux-gnu_14.2.0-19_amd64.deb",
+      "Size": "11047460",
+      "SHA256": "ef274b5379f5f97fc71619d39ecc84d039d3e184570d207b909c90afaa5d79e0"
+    },
+    "libstdc++-14-dev": {
+      "Package": "libstdc++-14-dev",
+      "Version": "14.2.0-19",
+      "Architecture": "amd64",
+      "Filename": "pool/main/g/gcc-14/libstdc++-14-dev_14.2.0-19_amd64.deb",
+      "Size": "2375760",
+      "SHA256": "4b962fac5f1af0bd8b1b3f97e0f47b9d8e9a79e88802143f00ebfbd78ad87a7b"
+    },
+    "make": {
+      "Package": "make",
+      "Version": "4.4.1-2",
+      "Architecture": "amd64",
+      "Filename": "pool/main/m/make-dfsg/make_4.4.1-2_amd64.deb",
+      "Size": "463104",
+      "SHA256": "70a9709e665383b06068ccd423d62ea191b65355f318a25565dbf324b254cec6"
+    },
+    "binutils": {
+      "Package": "binutils",
+      "Version": "2.44-3",
+      "Architecture": "amd64",
+      "Filename": "pool/main/b/binutils/binutils_2.44-3_amd64.deb",
+      "Size": "265400",
+      "SHA256": "6bc08c02539ba53b5e748142397144c499f9b20b5fa9bb56431545db124addeb"
+    },
+    "binutils-x86-64-linux-gnu": {
+      "Package": "binutils-x86-64-linux-gnu",
+      "Version": "2.44-3",
+      "Architecture": "amd64",
+      "Filename": "pool/main/b/binutils/binutils-x86-64-linux-gnu_2.44-3_amd64.deb",
+      "Size": "1013844",
+      "SHA256": "e6741ce95ff0f7a131c8d9faa3528ccbbc453078bbc62a97da81340ed7462c53"
+    },
+    "binutils-common": {
+      "Package": "binutils-common",
+      "Version": "2.44-3",
+      "Architecture": "amd64",
+      "Filename": "pool/main/b/binutils/binutils-common_2.44-3_amd64.deb",
+      "Size": "2508768",
+      "SHA256": "002da5d23f8757dee97a2c0a40e0e1d4d85a43da094488ee2ee7068d4d3691f9"
+    },
+    "patch": {
+      "Package": "patch",
+      "Version": "2.8-2",
+      "Architecture": "amd64",
+      "Filename": "pool/main/p/patch/patch_2.8-2_amd64.deb",
+      "Size": "134328",
+      "SHA256": "80c46a0085b33acc74bf451fddb6a70cb43d4ebcc4a873aec04d8d0a63ffc630"
+    },
+    "python3": {
+      "Package": "python3",
+      "Version": "3.13.5-1",
+      "Architecture": "amd64",
+      "Filename": "pool/main/p/python3-defaults/python3_3.13.5-1_amd64.deb",
+      "Size": "28244",
+      "SHA256": "c1388174dc7140e6c19a6dd39f8a0dcb38a835cd66c65644e0dded43d5223cb0"
+    }
+  },
+  "source_sha256": {
+    "takx/native-geos/build.py": "fd30e29d84419130978a703887f1eebe9793a448bfc111d86ac3e53f2383cf31",
+    "takx/native-geos/GeosInt64.cpp": "88094e1bf2c014bbe423ceed513705d6b3f3a49b3b39cf161d12a3d7fa3a875c",
+    "takx/native-geos/test_build.py": "a3602b0b1465adff86db01a8a86e5bfac1e367d1d2458a8425f4e251c2154735",
+    "takx/native-geos/README.md": "84d86c40955ea5e41908093ec0e210480fff8207f0a97de10f58be6a554a1d80",
+    "takx/native-geos/inputs.lock.json": "7bc37d81afcd7b8e52a771de9591574b413a5abca05471458b5d2b8b8ced98ac",
+    "takx/native-geos/patch.json": "1ec91f4abbdc0d0a8272a974a7b0472e969b8f3b99f664e56f1b9b7f4a722933",
+    "takx/native-geos/GeosGeometry.c": "7e6d624a2a989c7b3369f42d7d1752aa407d939c076c849465dfba7833639c65",
+    "takx/native-geos/run-in.py": "20a89a2e3f859e03a0d71e878f1ab67bc36580ad45cf65ccd72fa413dffd91c8",
+    "takx/native-las/build.py": "6efd28cbd3d8293123caaa9dc06c7652c93141a9ece47c7941fd09de4f803b38",
+    "takx/native-deps/build.py": "3831834729d9022e5a79b9dba1a4745f8b25b43990d7064b3a95661966d0b3ae"
+  }
+}
