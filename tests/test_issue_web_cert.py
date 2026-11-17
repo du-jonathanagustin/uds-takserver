@@ -312,6 +312,8 @@ class WebCertificateTests(unittest.TestCase):
         thread = threading.Thread(target=serve)
         thread.start()
         client = ssl.create_default_context(cafile=str(self.ca))
+        # Exercise current Python TLS defaults on older Python runtimes, too.
+        client.verify_flags |= ssl.VERIFY_X509_STRICT
         with socket.create_connection(server.getsockname(), timeout=5) as conn:
             with client.wrap_socket(conn, server_hostname=FQDN) as tls:
                 self.assertEqual(tls.recv(100), b'backend verified')
