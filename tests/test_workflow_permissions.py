@@ -56,7 +56,8 @@ def require_fork_scan_reporting(document):
     for step in (compare, upload, summary):
         if step.get('if') is not None or step.get('continue-on-error', False):
             raise ValueError('comparison and retention must use normal success semantics')
-    if upload['with'].get('path') != 'comment.md' or upload['with'].get('if-no-files-found') != 'error':
+    if set(upload['with'].get('path', '').splitlines()) != {
+            'comment.md', '${{ runner.temp }}/strict-scan-comparison/receipt.json'} or upload['with'].get('if-no-files-found') != 'error':
         raise ValueError('a complete comparison artifact is required')
     if not steps.index(compare) < steps.index(upload) < steps.index(summary):
         raise ValueError('retain the complete comparison before reporting')

@@ -15,6 +15,8 @@ on:
       - ".github/container-and-chart/**"
       - ".github/workflows/scan.yaml"
       - ".github/scripts/pin-image-tags.sh"
+      - ".github/scripts/strict-scan-compare.py"
+      - ".github/scripts/candidate-scan-mappings.py"
       - ".gitmodules"
       - "upstream/**"
 
@@ -125,6 +127,14 @@ jobs:
         with:
           version: v${{ env.UDS_CLI_VERSION }}
 
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install strict comparison parser
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+
       - name: Environment setup
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -148,7 +158,6 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           archive="${RUNNER_TEMP}/grype.tar.gz"
@@ -162,22 +171,21 @@ jobs:
           if [[ -n "${CANDIDATE_IMAGE_STATE:-}" ]]; then
             scan_yaml="${RUNNER_TEMP}/candidate-scan.yaml"
             python3 .github/scripts/candidate-consumer.py scan-manifest --state "${CANDIDATE_IMAGE_STATE}" --output "${scan_yaml}"
-            scan_options=(--zarf-yaml-path "${scan_yaml}")
-            # uds-pk 0.2.0 strips the digest after the final colon. Bind each
-            # resulting name@sha256 back to its original released image name.
-            for name in takserver-api takserver-config takserver-messaging takserver-plugins takserver-database-setup takserver-ignite cloudtak postgis; do
-              scan_options+=(--image-name-override "${name}=${name}@sha256")
-            done
+            candidate_state_sha256="$(sha256sum "${CANDIDATE_IMAGE_STATE}" | cut -d ' ' -f 1)"
+            mapping_file="${RUNNER_TEMP}/candidate-scan-mappings.txt"
+            # A checked command must finish before reading; process substitution
+            # would hide a mapping generator failure from this shell.
+            python3 .github/scripts/candidate-scan-mappings.py \
+              --state "${CANDIDATE_IMAGE_STATE}" --state-sha256 "${candidate_state_sha256}" > "${mapping_file}"
+            scan_options=(--zarf-yaml-path "${scan_yaml}" \
+              --candidate-state "${CANDIDATE_IMAGE_STATE}" --candidate-state-sha256 "${candidate_state_sha256}")
+            while IFS= read -r mapping; do
+              scan_options+=(--image-name-override "${mapping}")
+            done < "${mapping_file}"
           fi
-          uds-pk scan compare \
-            --public-packages-prefix "" \
-            --private-packages-prefix "private" \
-            "${scan_options[@]}" --verbose \
-            --allow-different-images --repo-owner "${REPO_OWNER}" > comment.md
-          {
-            echo "----"
-            echo "generated with uds-pk scan compare"
-          } >> comment.md
+          python3 .github/scripts/strict-scan-compare.py "${scan_options[@]}" \
+            --source-root . --flavor upstream --architecture amd64 \
+            --output-directory "${RUNNER_TEMP}/strict-scan-comparison" --markdown comment.md
           chars="$(wc -m < comment.md)"
           echo "Characters in comparison: ${chars}"
           if [[ "${chars}" -gt 65536 ]]; then
@@ -193,7 +201,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: scan-comparison
-          path: comment.md
+          path: |
+            comment.md
+            ${{ runner.temp }}/strict-scan-comparison/receipt.json
           if-no-files-found: error
 
       - name: Link comparison in job summary

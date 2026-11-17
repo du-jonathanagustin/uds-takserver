@@ -1,8 +1,8 @@
 # Strict image comparison adapter
 
-`../scripts/strict-scan-compare.py` is a prepared replacement for the acquisition
-and iteration portion of `uds-pk scan compare`. Scan-workflow integration and a
-fresh hosted qualification remain separate work. It retains the pinned
+The Scan workflow uses `../scripts/strict-scan-compare.py` for the acquisition
+and iteration portion formerly handled by `uds-pk scan compare`. A fresh hosted
+qualification remains separate work. It retains the pinned
 `uds-pk 0.2.0 compare-scans` implementation for vulnerability comparison and
 Markdown rendering; it does not add a fail-on-CVE threshold or turn the report
 into a security acceptance claim.
