@@ -85,6 +85,8 @@ The images are published for `linux/amd64` and `linux/arm64`. The container work
 - `5.7-RELEASE-14` and `5.7-RELEASE-14-<arch>`, the tags in the committed files and in released packages, are written only from `main`, from the keyed images.
 - `wait-for-tak-images.sh` waits for the keyed index, and `.github/scripts/pin-image-tags.sh` points `zarf.yaml`, `tasks.yaml` and `bundle/uds-config.yaml` at it before CI creates a package. A keyed tag only ever holds one set of inputs, so a pull request deploys its own TAK images even when another branch builds different ones at the same time.
 
+The TAK, CloudTAK and PostGIS tag helpers prefer `sha256sum` and use `shasum -a 256` when it is unavailable. Both hash the same input bytes and retain the first 12 hex digits. A failed Git lookup or hash stops the helper before it prints a tag or invokes a build or registry command. The helpers are themselves recipe inputs, so committing a change to one correctly produces a new key.
+
 To check a published tag:
 
 ```bash

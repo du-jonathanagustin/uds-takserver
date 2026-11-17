@@ -74,7 +74,14 @@ has_all_arches() {
 }
 
 input_key() {
-  printf '%s' "$1" | sha256sum | cut -c1-12
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | cut -c1-12
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | cut -c1-12
+  else
+    echo "SHA-256 requires sha256sum or shasum." >&2
+    return 1
+  fi
 }
 
 # PUSHED_REFS names a file that gets one line per tag this run pushed or
@@ -92,8 +99,11 @@ write_version_tag() {
 version="$(git -C "${root}" config -f .gitmodules submodule.upstream/cloudtak.branch)"
 
 if [[ "${1:-}" = "--tag" ]]; then
-  inputs="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)-$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
-  echo "${version}-$(input_key "${inputs}")"
+  sha="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)"
+  tree="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
+  inputs="${sha}-${tree}"
+  key="$(input_key "${inputs}")"
+  echo "${version}-${key}"
   exit 0
 fi
 
@@ -101,8 +111,11 @@ fi
 # builds the image. They wait for it here instead of reading an old or
 # missing image.
 if [[ "${1:-}" = "--wait" ]]; then
-  inputs="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)-$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
-  image="${registry}/cloudtak:${version}-$(input_key "${inputs}")"
+  sha="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)"
+  tree="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
+  inputs="${sha}-${tree}"
+  key="$(input_key "${inputs}")"
+  image="${registry}/cloudtak:${version}-${key}"
   deadline=$(( $(date +%s) + ${WAIT_SECONDS:-5400} ))
   while :; do
     current="$(published_inputs "${image}")"
@@ -121,8 +134,11 @@ if [[ "${1:-}" = "--wait" ]]; then
 fi
 
 if [[ "${1:-}" = "--merge" ]]; then
-  inputs="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)-$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
-  keyed="${registry}/cloudtak:${version}-$(input_key "${inputs}")"
+  sha="$(git -C "${root}" rev-parse HEAD:upstream/cloudtak)"
+  tree="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
+  inputs="${sha}-${tree}"
+  key="$(input_key "${inputs}")"
+  keyed="${registry}/cloudtak:${version}-${key}"
   targets=("${keyed}")
   if write_version_tag; then
     targets+=("${registry}/cloudtak:${version}")
@@ -162,14 +178,16 @@ if [[ "${sha}" != "${pinned}" ]]; then
   echo "Run: git submodule update --init --depth 1 upstream/cloudtak" >&2
   exit 1
 fi
-if [[ -n "$(git -C "${src}" status --porcelain --untracked-files=no)" ]]; then
+source_status="$(git -C "${src}" status --porcelain --untracked-files=no)"
+if [[ -n "${source_status}" ]]; then
   echo "upstream/cloudtak has local changes" >&2
   exit 1
 fi
 
 # Committed tree of this directory. Uncommitted edits make a local-only key.
 tree="$(git -C "${root}" rev-parse HEAD:.github/container-and-chart/cloudtak)"
-if [[ -n "$(git -C "${root}" status --porcelain -- .github/container-and-chart/cloudtak)" ]]; then
+recipe_status="$(git -C "${root}" status --porcelain -- .github/container-and-chart/cloudtak)"
+if [[ -n "${recipe_status}" ]]; then
   tree="${tree}-dirty"
 fi
 inputs="${sha}-${tree}"
@@ -187,7 +205,8 @@ if [[ "${PUSH_IMAGES:-false}" = "true" ]]; then
     echo "Set ARCH (amd64 or arm64) to push. build.sh --merge writes ${version}." >&2
     exit 1
   fi
-  tag="${version}-$(input_key "${inputs}")-${arch}"
+  key="$(input_key "${inputs}")"
+  tag="${version}-${key}-${arch}"
 else
   tag="${version}"
 fi
