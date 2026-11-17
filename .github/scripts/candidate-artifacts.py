@@ -73,24 +73,38 @@ class GitHub:
             # Keep API failures closed, but retain the server's bounded reason
             # and rate evidence so permission and throttling failures differ.
             # Never log credentials, redirect URLs or arbitrary response headers.
-            message = 'unavailable'
+            reason = 'unclassified-api-error'
             try:
                 raw = error.read(4097)
                 if len(raw) <= 4096:
                     body = json.loads(raw)
                     if isinstance(body, dict) and isinstance(body.get('message'), str):
-                        message = body['message'].replace(self.token, '[redacted]')[:512]
+                        message = body['message'].lower()
+                        if 'secondary rate limit' in message:
+                            reason = 'secondary-rate-limit'
+                        elif message.startswith('api rate limit exceeded'):
+                            reason = 'primary-rate-limit'
+                        elif message == 'resource not accessible by integration':
+                            reason = 'integration-access-denied'
+                        elif message == 'resource not accessible by personal access token':
+                            reason = 'token-access-denied'
+                        elif message == 'bad credentials':
+                            reason = 'bad-credentials'
+                        elif message == 'not found':
+                            reason = 'not-found'
             except (OSError, ValueError, TypeError):
                 pass
             evidence = []
             for header, pattern in (('X-RateLimit-Remaining', r'[0-9]{1,12}'),
                                     ('X-RateLimit-Reset', r'[0-9]{1,12}'),
                                     ('Retry-After', r'[0-9]{1,6}'),
-                                    ('X-GitHub-Request-Id', r'[A-Za-z0-9:_-]{1,128}')):
+                                    ('X-GitHub-Request-Id', r'[A-Fa-f0-9]{4,16}(?::[A-Fa-f0-9]{4,16}){3,5}')):
                 value = (error.headers or {}).get(header, '')
-                if re.fullmatch(pattern, value):
+                if isinstance(value, str) and self.token not in value and re.fullmatch(pattern, value):
                     evidence.append(f'{header}={value}')
-            detail = '; '.join([f'message={json.dumps(message, ensure_ascii=True)}', *evidence])
+            # Free-form server messages can contain other credentials or
+            # signed URLs. Emit only fixed reason labels and safe headers.
+            detail = '; '.join([f'reason={reason}', *evidence])
             raise ValueError(f'GitHub candidate API GET {urlparse(path).path} returned HTTP {error.code}: {detail}') from error
 
     def get(self, path):

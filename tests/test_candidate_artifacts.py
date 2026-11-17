@@ -161,13 +161,14 @@ class ArtifactIdentityTests(unittest.TestCase):
 
     def test_http_failures_distinguish_rate_and_permission_evidence_without_credentials(self):
         path = '/repos/upstream/repo/actions/runs?head_sha=' + 'a' * 40
-        for message, headers in (
-                ('API rate limit exceeded for secret-fixture.', {'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1794899999'}),
-                ('You have exceeded a secondary rate limit.', {'Retry-After': '60'}),
-                ('Resource not accessible by integration', {})):
+        for message, reason, headers in (
+                ('API rate limit exceeded for secret-fixture.', 'primary-rate-limit',
+                 {'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1794899999'}),
+                ('You have exceeded a secondary rate limit.', 'secondary-rate-limit', {'Retry-After': '60'}),
+                ('Resource not accessible by integration', 'integration-access-denied', {})):
             api = CANDIDATE.GitHub('upstream/repo', 'secret-fixture')
             error = HTTPError('https://private.invalid/signed?token=secret-fixture', 403, 'Forbidden',
-                              {**headers, 'X-GitHub-Request-Id': 'ABCD:1234',
+                              {**headers, 'X-GitHub-Request-Id': '7C00:11EE9C:170F3C:24EA87:6AFBF9C8',
                                'Authorization': 'secret-fixture', 'Location': 'private-redirect-fixture'},
                               io.BytesIO(json.dumps({'message': message, 'private': 'private-body-fixture'}).encode()))
             with self.subTest(message=message), patch.object(api.opener, 'open', side_effect=error), \
@@ -175,15 +176,17 @@ class ArtifactIdentityTests(unittest.TestCase):
                 api.get(path)
             text = str(raised.exception)
             self.assertIn('GET /repos/upstream/repo/actions/runs returned HTTP 403', text)
-            self.assertIn(message.replace('secret-fixture', '[redacted]'), text)
+            self.assertIn('reason=' + reason, text)
             for name, value in headers.items():
                 self.assertIn(f'{name}={value}', text)
-            self.assertIn('X-GitHub-Request-Id=ABCD:1234', text)
+            self.assertIn('X-GitHub-Request-Id=7C00:11EE9C:170F3C:24EA87:6AFBF9C8', text)
             for private in ('secret-fixture', 'private.invalid', 'private-redirect-fixture', 'private-body-fixture', 'head_sha'):
                 self.assertNotIn(private, text)
 
     def test_http_failure_diagnostics_bound_untrusted_body_and_header_values(self):
-        for body in (b'<html>private-body-fixture</html>', json.dumps({'message': 'x' * 6000}).encode()):
+        for body in (b'<html>private-body-fixture</html>', json.dumps({'message': 'x' * 6000}).encode(),
+                     json.dumps({'message': 'Download https://blob.example/signed?sig=private-signed-fixture '
+                                 'Authorization: Bearer other-token-fixture'}).encode()):
             api = CANDIDATE.GitHub('upstream/repo', 'secret-fixture')
             error = HTTPError('https://api.github.com/fixture', 403, 'Forbidden',
                               {'X-RateLimit-Remaining': '0\nprivate-header-fixture',
@@ -192,9 +195,25 @@ class ArtifactIdentityTests(unittest.TestCase):
                     self.assertRaises(ValueError) as raised:
                 api.get('/repos/upstream/repo/actions/runs')
             text = str(raised.exception)
-            self.assertIn('message="unavailable"', text)
+            self.assertIn('reason=unclassified-api-error', text)
             self.assertLess(len(text), 256)
             self.assertNotIn('private-', text)
+            self.assertNotIn('other-token-fixture', text)
+            self.assertNotIn('https://', text)
+
+    def test_every_diagnostic_header_rejects_the_actual_credential(self):
+        for header, token in (('X-GitHub-Request-Id', 'ABCD:1234:ABCD:1234'),
+                              ('X-RateLimit-Remaining', '123'), ('X-RateLimit-Reset', '1794899999'),
+                              ('Retry-After', '60')):
+            api = CANDIDATE.GitHub('upstream/repo', token)
+            error = HTTPError('https://api.github.com/fixture', 403, 'Forbidden', {header: token},
+                              io.BytesIO(b'{"message":"Bad credentials"}'))
+            with self.subTest(header=header), patch.object(api.opener, 'open', side_effect=error), \
+                    self.assertRaises(ValueError) as raised:
+                api.get('/repos/upstream/repo/actions/runs')
+            self.assertIn('reason=bad-credentials', str(raised.exception))
+            self.assertNotIn(token, str(raised.exception))
+            self.assertNotIn(header + '=', str(raised.exception))
 
 
 if __name__ == '__main__':
