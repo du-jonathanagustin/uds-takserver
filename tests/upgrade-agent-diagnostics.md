@@ -9,6 +9,14 @@ limit around the helper's own deadline. The shared Test upgrade steps do not
 invoke the install-only caller, so existing upgrade boundary capture is not
 duplicated. Capturing evidence cannot turn a failed validation into success.
 It retains the 30-second process-group deadline and three-second command limits.
+Each command also has a combined 1 MiB stdout/stderr ceiling. The bounded command
+helper drains both pipes before releasing either complete stream; a timeout or
+oversized response kills the owned process group and emits only a fixed omission.
+Partial prefixes never reach discovery parsing, redaction or publication. Completed
+nonzero exits retain their status and complete bounded error streams for redaction.
+Whole-stream redaction has the same byte ceiling, including the final combined
+sanitized log, and omits malformed UTF-8. These limits bound failure capture; they
+do not diagnose the original failed request or change readiness/admission behavior.
 CRI capture runs first so unavailable API calls cannot consume the entire budget.
 It reads at most two k3d nodes and two agent container attempts per node, newest
 first, including exited containers. Both API logs and CRI logs use source-side
