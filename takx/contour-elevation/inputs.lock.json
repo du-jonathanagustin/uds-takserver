@@ -9,7 +9,7 @@
     "tests/ElevationContourControls.java": "68993b6c1a516d849bf86e83c746826156cce32aa66643cf9878cb0eca5bb812",
     "tests/ContourVisibilityControls.java": "305586bf1ba197bfbe88a88ad13108543dab4e32d5297f9c6a319c6e6e8ec8e1"
   },
-  "grid_sha256": "a5a986409258cda81f147dd241f0dc2d9ccca48d5d56c032f12dc325a3f227c5",
+  "grid_sha256": "b555e34a54574ca2153dcaa54242ef723339b7d2cf22b102df37ba10ced45cba",
   "elevation_profile": {
     "controls.py": "668e83ccf78e4c4bc03bb9490d442d869f4c93f36c41d49a098f7e9387e2f387",
     "prepare.py": "dc8fda67634f3124efd13d374f608703cfeb9da42f1a310e2c8d54e916aac1aa",
