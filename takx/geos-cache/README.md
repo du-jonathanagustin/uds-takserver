@@ -40,6 +40,7 @@ The engine must already have the immutable image in `inputs.lock.json`. The
 launcher checks its exact configuration digest, Linux OS and AMD64 architecture;
 it does not acquire images implicitly. Locked source acquisition is about two
 MiB and requires only the public archive and original three-file ATAK patch.
+Use Python 3.11 or newer for the host launcher and offline checks.
 Use canonical external paths; outputs must be new, outside the repository and
 separate from source caches or OCI inputs. Symlink, filesystem-identity and
 Unicode/case aliases are rejected. Case-distinct Linux path pairs are also
@@ -106,7 +107,8 @@ changed recipe requires a fully fresh run.
 
 Capsules allow at most 32 MiB compressed and 64 MiB expanded, two MiB JSON and
 exactly five regular payload files plus the manifest. Canonical USTAR headers,
-zero padding, bounded framing, exact OCI directories/blobs and unique JSON keys
+zero padding, one canonical gzip member, bounded framing, exact OCI
+directories/blobs and unique JSON keys
 exclude unrecorded metadata, links, sparse entries, traversal and extras.
 
 Offline parser, key, alias, privacy, payload-lease and cleanup controls run with:

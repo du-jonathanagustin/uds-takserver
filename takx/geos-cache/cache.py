@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 import re
 import tarfile
 import unicodedata
+import zlib
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
@@ -253,8 +254,14 @@ def tar_files(expanded):
 def verify(capsule, digest, key):
     raw = read(capsule, MAX_CAPSULE)
     require(hashed(digest) and sha(raw) == digest, 'capsule digest differs')
-    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
-        expanded = stream.read(MAX_EXPANDED + 1)
+    require(raw[:10] == b'\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff', 'noncanonical gzip metadata')
+    stream = zlib.decompressobj(31)
+    try:
+        expanded = stream.decompress(raw, MAX_EXPANDED + 1)
+    except zlib.error:
+        raise ValueError('invalid gzip framing') from None
+    require(len(expanded) <= MAX_EXPANDED and stream.eof and not stream.unused_data
+            and not stream.unconsumed_tail, 'incomplete or concatenated gzip member')
     files = tar_files(expanded)
     manifest = decode(files.pop('manifest.json'))
     require(set(manifest) == {'schema', 'input_key', 'identity', 'qualification', 'files'}

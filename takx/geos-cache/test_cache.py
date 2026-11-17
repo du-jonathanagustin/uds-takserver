@@ -186,6 +186,16 @@ class LocalContracts(unittest.TestCase):
         with self.assertRaises(ValueError): C.verify_layout(self.root / 'oci', subject, key)
         with self.assertRaises(ValueError): C.decode(b'{"duplicate":1,"duplicate":2}')
 
+    def test_gzip_private_metadata_concatenation_and_truncated_framing_refuse(self):
+        capsule, _, key = self.packed(); original=capsule.read_bytes()
+        changed=bytearray(original);changed[4:8]=(17).to_bytes(4,'little')
+        stream=io.BytesIO()
+        with gzip.GzipFile(fileobj=stream,filename='unrecorded-private-metadata',mtime=0,mode='wb') as gz:
+            gz.write(gzip.decompress(original))
+        for raw in (changed,stream.getvalue(),original+gzip.compress(b'',mtime=0),original[:-4],original+b'private'):
+            target=self.root/'invalid-framing.tar.gz';target.write_bytes(raw)
+            with self.assertRaises(ValueError):C.verify(target,C.file_sha(target),key)
+
     def test_projection_rejects_executable_symlink_and_claim_promotion(self):
         path = self.prefix / 'include/geos_c.h'; path.chmod(0o755)
         with self.assertRaises(ValueError): self.packed()
