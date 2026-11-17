@@ -76,6 +76,11 @@ jobs:
       - name: Trust bundle live-test restoration contracts
         run: python3 -B -m unittest tests.test_trust_bundle_live tests.test_validation_mode tests.test_trust_fixture -v
 
+      - name: Strict image inventory and released scan comparison guards
+        env:
+          PYYAML_VERSION: 6.0.3
+        run: uv run --no-project --with "pyyaml==${PYYAML_VERSION}" python -B -m unittest tests.test_strict_scan_compare -v
+
       - name: Install execution receipt producers
         run: python3 -B -m unittest tests.test_install_receipt tests.test_checkpoint_identity tests.test_install_artifact_inputs tests.test_collect_install_receipt tests.test_install_reuse_shadow -v
 
