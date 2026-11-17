@@ -34,6 +34,14 @@ class OwnerProviderTests(unittest.TestCase):
         with patch.dict(os.environ, {'CORE_RESTORE_OWNER_TRIAL': 'yes'}, clear=True):
             with self.assertRaises(ValueError):C.enabled()
 
+    def test_intentional_task_pin_has_existing_separate_guard(self):
+        self.assertNotIn('tasks.yaml',C.HELPERS)
+        self.assertIn('.github/scripts/pin-image-tags.sh',C.HELPERS)
+        self.assertIn('.github/scripts/staged-migrations.py',C.HELPERS)
+        spec=importlib.util.spec_from_file_location('source_task_guard_driver',ROOT/'tests/velero-ownership/drive.py')
+        driver=importlib.util.module_from_spec(spec);spec.loader.exec_module(driver)
+        self.assertIn('tasks.yaml',driver.REVIEWED_HELPERS)
+
     def test_wrong_workflow_source_platform_and_identity_modes_are_refused(self):
         changes = {'GITHUB_EVENT_NAME': 'pull_request', 'GITHUB_REF': 'refs/heads/topic',
                    'GITHUB_WORKFLOW_REF': 'other', 'GITHUB_REPOSITORY': 'other/repo',

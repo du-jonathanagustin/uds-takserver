@@ -144,12 +144,16 @@ is not a signature check. The exact certificate, issuer and transparency-log
 checks remain mandatory in the preceding provider verifier and normal UDS
 bundle creation/deployment.
 
-The provider receipt includes a closed inventory of all 26 runtime helpers,
+The provider receipt includes a closed inventory of 26 runtime helper files,
 including policy YAML, controller readback, bundle reader, driver and staged
 receipt helpers. Every receipt compares those bytes to the exact workflow source
 commit with Git replacement and lazy fetching disabled. Source/helper drift
 before deployment, restore or final receipt verification fails closed; the
 constructor's initial helper check is not the final check.
+`tasks.yaml` retains its existing separate strict pin/restoration guard: its
+temporary image-tag transform is validated and restored after archive binding,
+then the driver requires exact reviewed task bytes before deployment. The pin
+script and restoration guard remain in the closed inventory.
 
 Only the experimental bundle copies select this local signed backup/restore
 package. The trial uses `tests/backup-restore-controller-trial.sh`, carrying the

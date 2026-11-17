@@ -23,13 +23,17 @@ HELPERS = (HELPER, '.github/scripts/velero-controller-state.py', 'tests/velero-c
            'tests/velero-ownership/transfer.py', 'tests/velero-ownership/observe.py',
            'tests/backup-restore.sh', 'tests/backup-names.sh', 'tests/api-smoke.sh',
            'tests/extract-certs.sh', 'tests/keystore-pass.sh', 'tests/db-dump-secret.sh',
-           'tests/ensure-tak-group.py', 'tasks.yaml', 'tasks/test.yaml',
+           'tests/ensure-tak-group.py', 'tasks/test.yaml', '.github/scripts/pin-image-tags.sh',
            '.github/scripts/checked-pipe.sh', '.github/scripts/redact-then-filter.sh',
            '.github/scripts/redact-logs.py', '.github/scripts/node-agent-ready.sh')
 
 
 def helper_inventory(binding):
     """Freeze the complete runtime helper inventory to this workflow's source."""
+    # tasks.yaml deliberately carries the reviewed pin-image-tags transform
+    # until restore-task-default validates and restores it after archive binding.
+    # That existing guard is itself in HELPERS; Driver.verify_helpers then
+    # requires exact tasks.yaml bytes before any owner deployment.
     env = {'PATH': '/usr/bin:/bin', 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1', 'GIT_OPTIONAL_LOCKS': '0'}
     if 'HOME' in os.environ:
         env['HOME'] = os.environ['HOME']
