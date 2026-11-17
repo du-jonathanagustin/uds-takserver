@@ -108,9 +108,9 @@ def verify_loaded(ref, expected, config_digest):
             'loaded candidate image inputs mismatch')
 
 
-def acquire(group, arch, context, directory, load=False, timeout=10800, wait=True):
+def acquire(group, arch, context, directory, load=False, timeout=10800, wait=True, api=None):
     expected = identity(group, arch, context)
-    api = ARTIFACTS.GitHub(context['repository'], os.environ.get('GH_TOKEN', ''))
+    api = api or ARTIFACTS.GitHub(context['repository'], os.environ.get('GH_TOKEN', ''))
     try:
         ARTIFACTS.select_run(api, context, group)
         scheduled = True
@@ -176,24 +176,26 @@ def export_cache(directory):
 def ready(group, arches, context, directory, timeout):
     started = time.monotonic()
     deadline = started + timeout
+    api = ARTIFACTS.GitHub(context['repository'], os.environ.get('GH_TOKEN', ''))
+    interval = 15
     while True:
         pending = []
         # Inspect every required architecture before waiting. A running AMD
         # build must not hide a terminal ARM failure in the same native gate.
-        for arch in arches:
-            try:
-                acquire(group, arch, context, directory / (group + '-' + arch), wait=False)
-            except ARTIFACTS.Pending as error:
-                pending.append(str(error))
+        with api.snapshot():
+            for arch in arches:
+                try:
+                    acquire(group, arch, context, directory / (group + '-' + arch), wait=False, api=api)
+                except ARTIFACTS.Pending as error:
+                    pending.append(str(error))
         if not pending:
             for arch in arches:
                 print(f"candidate-consumer: {group} linux/{arch} ready for {context['head_sha']}")
             return
-        now = time.monotonic()
-        require(now < deadline and (now - started < 90 or not any('not been scheduled' in reason for reason in pending)),
-                '; '.join(pending))
+        delay = ARTIFACTS.pending_delay(started, deadline, pending, interval)
         print(f"candidate-consumer: waiting for {group}: {'; '.join(pending)}", flush=True)
-        time.sleep(min(15, max(0, deadline - now)))
+        time.sleep(delay)
+        interval = min(120, interval * 2)
 
 
 def verify_cache(decision, expected):

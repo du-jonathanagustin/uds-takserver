@@ -57,7 +57,8 @@ class CandidateConsumerTests(unittest.TestCase):
 
     def test_ready_checks_failed_arm_before_waiting_for_pending_amd(self):
         calls = []
-        def acquire(group, arch, context, directory, load=False, timeout=10800, wait=True):
+        def acquire(group, arch, context, directory, load=False, timeout=10800, wait=True, api=None):
+            self.assertIs(api, self.api)
             calls.append(arch)
             if arch == 'amd64':
                 if wait:
@@ -66,6 +67,7 @@ class CandidateConsumerTests(unittest.TestCase):
             raise ValueError('canonical arm64 native candidate build failed')
         with patch.object(sys, 'argv', ['candidate-consumer.py', 'ready', '--group', 'takserver']), \
              patch.object(CANDIDATE.ARTIFACTS, 'context_from_environment', return_value=self.context), \
+             patch.object(CANDIDATE.ARTIFACTS, 'GitHub', return_value=self.api), \
              patch.object(CANDIDATE, 'acquire', side_effect=acquire), \
              patch.object(CANDIDATE.time, 'sleep') as sleep:
             with self.assertRaisesRegex(ValueError, 'arm64 native candidate build failed'):

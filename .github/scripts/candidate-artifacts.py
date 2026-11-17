@@ -5,6 +5,7 @@
 """Resolve read-only PR candidate archives from their canonical native jobs."""
 
 import argparse
+from contextlib import contextmanager
 import fnmatch
 import hashlib
 import importlib.util
@@ -61,15 +62,33 @@ class GitHub:
         require(bool(token), 'GH_TOKEN is required for candidate artifact reads')
         self.repository, self.token = repository, token
         self.opener = build_opener(NoCredentialRedirect())
+        self.metadata_cache = {}
+        self.snapshot_cache = None
 
-    def request(self, path):
+    @contextmanager
+    def snapshot(self):
+        """Share one freshly revalidated response per URL within one poll."""
+        require(self.snapshot_cache is None, 'candidate metadata snapshots cannot nest')
+        self.snapshot_cache = {}
+        try:
+            yield self
+        finally:
+            self.snapshot_cache = None
+
+    def request(self, path, etag=None):
         require(path.startswith('/repos/' + self.repository + '/actions/') or
                 re.fullmatch('/repos/' + re.escape(self.repository) + r'/pulls/[1-9][0-9]*(?:/files)?(?:\?.*)?', path) is not None,
                 'invalid GitHub candidate API path')
+        headers = {'Authorization': 'Bearer ' + self.token, 'Accept': 'application/vnd.github+json',
+                   'X-GitHub-Api-Version': '2022-11-28'}
+        if etag is not None:
+            require(valid_etag(etag), 'invalid candidate metadata ETag')
+            headers['If-None-Match'] = etag
         try:
-            return self.opener.open(Request(API + path, headers={'Authorization': 'Bearer ' + self.token,
-                                    'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}), timeout=60)
+            return self.opener.open(Request(API + path, headers=headers), timeout=60)
         except HTTPError as error:
+            if error.code == 304:
+                raise
             # Keep API failures closed, but retain the server's bounded reason
             # and rate evidence so permission and throttling failures differ.
             # Never log credentials, redirect URLs or arbitrary response headers.
@@ -94,6 +113,7 @@ class GitHub:
                             reason = 'not-found'
             except (OSError, ValueError, TypeError):
                 pass
+            error.close()
             evidence = []
             for header, pattern in (('X-RateLimit-Remaining', r'[0-9]{1,12}'),
                                     ('X-RateLimit-Reset', r'[0-9]{1,12}'),
@@ -108,10 +128,29 @@ class GitHub:
             raise ValueError(f'GitHub candidate API GET {urlparse(path).path} returned HTTP {error.code}: {detail}') from error
 
     def get(self, path):
-        with self.request(path) as response:
-            raw = response.read(16 * 1024**2 + 1)
-        require(len(raw) <= 16 * 1024**2, 'GitHub metadata response exceeds its size limit')
-        return IMAGES.read_json(raw)
+        if self.snapshot_cache is not None and path in self.snapshot_cache:
+            return self.snapshot_cache[path]
+        cached = self.metadata_cache.get(path)
+        try:
+            with self.request(path, etag=cached['etag'] if cached else None) as response:
+                raw = response.read(16 * 1024**2 + 1)
+                etag = (getattr(response, 'headers', None) or {}).get('ETag')
+            require(len(raw) <= 16 * 1024**2, 'GitHub metadata response exceeds its size limit')
+            value = IMAGES.read_json(raw)
+            if valid_etag(etag):
+                self.metadata_cache[path] = {'etag': etag, 'value': value}
+            else:
+                self.metadata_cache.pop(path, None)
+        except HTTPError as error:
+            try:
+                require(error.code == 304 and cached is not None and valid_etag(cached['etag']),
+                        'GitHub candidate metadata returned 304 without a validated ETag')
+                value = cached['value']
+            finally:
+                error.close()
+        if self.snapshot_cache is not None:
+            self.snapshot_cache[path] = value
+        return value
 
     def pages(self, path, field):
         separator = '&' if '?' in path else '?'
@@ -145,6 +184,19 @@ class GitHub:
             unpack_artifact(temporary, destination, cache=cache)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+def valid_etag(value):
+    return isinstance(value, str) and re.fullmatch(r'(?:W/)?"[\x21\x23-\x7e]{0,256}"', value) is not None
+
+
+def pending_delay(started, deadline, reasons, interval):
+    """Bound pending polls without extending the missing-producer lease."""
+    now = time.monotonic()
+    missing = any('not been scheduled' in reason for reason in reasons)
+    limit = min(deadline, started + 90) if missing else deadline
+    require(now < limit, '; '.join(reasons))
+    return min(interval, limit - now)
 
 
 def unpack_artifact(archive, destination, cache=False):
@@ -276,10 +328,10 @@ def resolve(api, context, group, arch, timeout=10800, interval=15):
         except Pending as pending:
             # A missing workflow is an admission/configuration error, not an
             # excuse to wait hours for a producer that was never dispatched.
-            require(time.monotonic() < deadline and
-                    (time.monotonic() - started < 90 or 'not been scheduled' not in str(pending)), str(pending))
+            delay = pending_delay(started, deadline, [str(pending)], interval)
             print(f'candidate-artifacts: {pending}', flush=True)
-            time.sleep(min(interval, max(0, deadline - time.monotonic())))
+            time.sleep(delay)
+            interval = min(120, interval * 2)
 
 
 def export(group, arch, directory, source_tag):
