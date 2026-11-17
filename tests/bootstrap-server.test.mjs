@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHmac } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import tls from 'node:tls';
 import os from 'node:os';
@@ -130,7 +130,7 @@ test('failed or unconfirmed writes are retried instead of being remembered', asy
     }
 });
 
-test('the real bootstrap process updates a persisted connection and reaches the replacement TLS peer', async (t) => {
+test('the real bootstrap process reconciles persisted settings and rotated mounted credentials over TLS', async (t) => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'uds-bootstrap-'));
     t.after(() => rmSync(directory, { recursive: true, force: true }));
     execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -138,9 +138,18 @@ test('the real bootstrap process updates a persisted connection and reaches the 
         '-keyout', path.join(directory, 'admin.key'), '-out', path.join(directory, 'admin.pem')], { stdio: 'ignore' });
     const cert = readFileSync(path.join(directory, 'admin.pem'));
     const key = readFileSync(path.join(directory, 'admin.key'));
-    const { writeFileSync } = await import('node:fs');
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+        '-subj', '/CN=replacement', '-keyout', path.join(directory, 'replacement.key'),
+        '-out', path.join(directory, 'replacement.pem')], { stdio: 'ignore' });
+    const replacementCert = readFileSync(path.join(directory, 'replacement.pem'));
+    const replacementKey = readFileSync(path.join(directory, 'replacement.key'));
     writeFileSync(path.join(directory, 'ca.pem'), cert);
-    const peer = tls.createServer({ cert, key }, (socket) => socket.end());
+    const acceptedClients = [];
+    const peer = tls.createServer({ cert, key, ca: [cert, replacementCert],
+        requestCert: true, rejectUnauthorized: true }, (socket) => {
+        acceptedClients.push(socket.getPeerCertificate().subject.CN);
+        socket.end('verified client');
+    });
     await new Promise(resolve => peer.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise(resolve => peer.close(resolve)));
     const stream = `ssl://127.0.0.1:${peer.address().port}`;
@@ -149,6 +158,7 @@ test('the real bootstrap process updates a persisted connection and reaches the 
         connection: true, updated: '0', connection_status: 'dead' };
     let patches = 0;
     let connections = 0;
+    const adoptedCertificates = [];
     const signing = 'synthetic-signing-secret';
     const server = http.createServer(async (req, res) => {
         const chunks = [];
@@ -168,9 +178,17 @@ test('the real bootstrap process updates a persisted connection and reaches the 
                 assert.equal(patch.name, undefined);
                 await new Promise((resolve, reject) => {
                     const socket = tls.connect({ host: '127.0.0.1', port: peer.address().port,
-                        ca: cert, servername: 'localhost' }, () => { connections++; socket.end(); resolve(); });
+                        ca: cert, servername: 'localhost', ...patch.auth });
+                    let reply = '';
+                    socket.setEncoding('utf8');
+                    socket.on('data', chunk => { reply += chunk; });
+                    socket.on('end', () => {
+                        if (reply !== 'verified client') reject(new Error('TLS peer did not verify the client'));
+                        else { connections++; resolve(); }
+                    });
                     socket.on('error', reject);
                 });
+                adoptedCertificates.push(patch.auth.cert);
                 Object.assign(record, patch, { auth: true, updated: String(patches), connection_status: 'live' });
             }
             res.end(JSON.stringify(record));
@@ -191,21 +209,35 @@ test('the real bootstrap process updates a persisted connection and reaches the 
     let errors = '';
     child.stdout.on('data', chunk => { output += chunk; });
     child.stderr.on('data', chunk => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => { clearInterval(poll); reject(new Error(`bootstrap did not settle: ${errors}`)); }, 5000);
+    const waitUntil = (ready, label, timeoutMs = 5000) => new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            clearInterval(poll); reject(new Error(`bootstrap did not ${label}: ${errors}`));
+        }, timeoutMs);
         const poll = setInterval(() => {
-            if (output.includes('unchanged, connection live')) {
-                clearTimeout(timeout); clearInterval(poll); resolve();
-            }
+            if (ready()) { clearTimeout(timeout); clearInterval(poll); resolve(); }
         }, 10);
     });
+    await waitUntil(() => output.includes('unchanged, connection live'), 'settle');
+    assert.equal(patches, 1);
+
+    // A read that crosses a projected Secret update can see a mismatched pair.
+    // Leave that state visible until the process rejects it, then complete it.
+    writeFileSync(path.join(directory, 'admin.pem'), replacementCert);
+    await waitUntil(() => errors.includes('certificate and private key do not match'), 'reject the mismatched pair');
+    assert.equal(patches, 1);
+    writeFileSync(path.join(directory, 'admin.key'), replacementKey);
+    const stableCycles = () => (output.match(/unchanged, connection live/g) || []).length;
+    const previousCycles = stableCycles();
+    await waitUntil(() => patches === 2 && stableCycles() > previousCycles, 'adopt the rotated pair', 20000);
     child.kill();
     await closed;
-    assert.equal(patches, 1);
-    assert.equal(connections, 1);
+    assert.equal(patches, 2);
+    assert.equal(connections, 2);
+    assert.deepEqual(acceptedClients, ['localhost', 'replacement']);
+    assert.deepEqual(adoptedCertificates, [cert.toString(), replacementCert.toString()]);
     assert.equal(record.id, 42);
     assert.equal(record.name, 'Retained display name');
     assert.equal(record.url, stream);
-    assert.equal(errors, '');
+    assert.equal(errors, 'not ok - TAK admin certificate and private key do not match\n');
     assert.doesNotMatch(output, /PRIVATE KEY|synthetic-password/);
 });
