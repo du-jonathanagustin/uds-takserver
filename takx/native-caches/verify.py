@@ -299,6 +299,14 @@ COMPONENTS = {
         "control_marker": "geos_static_pic_control=true",
         "required_artifacts": ("lib/libgeos.a", "lib/libgeos_c.a", "include/geos_c.h", "COPYING"),
     },
+    "mdbtools": {
+        "version": "1.0.0",
+        "archive_sha256": "3446e1d71abdeb98d41e252777e67e1909b186496fda59f98f67032f7fbcd955",
+        "license_sha256": "b7993225104d90ddd8024fd838faf300bea5e83d91203eab98e29512acebd69c",
+        "control_file": "mdbtools_control.c",
+        "control_marker": "mdbtools_static_pic_control=true",
+        "required_artifacts": ("lib/libmdb.a", "include/mdbtools.h", "COPYING.LIB"),
+    },
 }
 
 
