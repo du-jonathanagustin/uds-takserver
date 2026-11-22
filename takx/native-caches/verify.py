@@ -141,6 +141,14 @@ COMPONENTS = {
         "control_marker": "fmt_static_pic_control=true",
         "required_artifacts": ("lib/libfmt.a", "include/fmt/core.h", "LICENSE"),
     },
+    "zstd": {
+        "version": "1.5.6",
+        "archive_sha256": "30f35f71c1203369dc979ecde0400ffea93c27391bfd2ac5a9715d2173d92ff7",
+        "license_sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
+        "control_file": "zstd_control.c",
+        "control_marker": "zstd_static_pic_control=true",
+        "required_artifacts": ("lib/libzstd.a", "include/zstd.h", "LICENSE"),
+    },
 }
 
 
