@@ -10,7 +10,7 @@
 #
 #   docker buildx build -f atak/vm/Dockerfile -t atak-civ-vm .
 
-ARG TOOLS_IMAGE=ubuntu:24.04@sha256:9c7f200c07e3d4a03e7249d2c16bf66a51120fb876aa2242cf31451412543289
+ARG TOOLS_IMAGE=ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b
 
 FROM ${TOOLS_IMAGE} AS disk
 RUN apt-get update \

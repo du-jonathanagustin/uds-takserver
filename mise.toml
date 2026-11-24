@@ -8,7 +8,7 @@
 # renovate: datasource=node depName=node versioning=node
 node = "26.13.1"
 # renovate: datasource=github-releases depName=jdx/hk versioning=semver
-hk = "2.13.0"
+hk = "2.14.0"
 # renovate: datasource=github-releases depName=k3d-io/k3d versioning=semver-coerced
 k3d = "5.9.0"
 # renovate: datasource=github-releases depName=helm/helm versioning=semver

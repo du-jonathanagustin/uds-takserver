@@ -14,7 +14,7 @@
 # phase that changed.
 
 # Base of the driver image (adb and python3 for UI Automator dumps).
-ARG DRIVER_IMAGE=ubuntu:24.04@sha256:9c7f200c07e3d4a03e7249d2c16bf66a51120fb876aa2242cf31451412543289
+ARG DRIVER_IMAGE=ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b
 ARG BUILDER_IMAGE=eclipse-temurin:17.0.21.1_2-jdk-jammy@sha256:39a7842fefd685466676073a9507666c82e983af8936551c8c3cf825442a123a
 
 FROM ${BUILDER_IMAGE} AS toolchain
