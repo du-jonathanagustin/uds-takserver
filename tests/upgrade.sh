@@ -39,7 +39,7 @@ export UDS_ARCH="${arch}" FLAVOR=upstream
 if [[ "$#" -eq 3 ]]; then
   test -s "${beta_package}" && test -s "${beta_key}" || exit 2
   uds zarf package verify "${beta_package}" --key "${beta_key}"
-  uds zarf package inspect definition "${beta_package}" --key "${beta_key}" --verify=always |
+  uds zarf package inspect definition "${beta_package}" --key "${beta_key}" --verify=always --no-color |
     EXPECTED_ARCH="${arch}" uds zarf tools yq eval-all --exit-status '
       select(.kind == "ZarfPackageConfig") |
       .apiVersion == "zarf.dev/v1beta1" and .metadata.name == "takserver" and
