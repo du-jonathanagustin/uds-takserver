@@ -6,6 +6,11 @@ name: Zarf Next live qualification
 on:
   workflow_dispatch:
     inputs:
+      architecture:
+        description: Native production package architecture to qualify
+        type: choice
+        options: [both, amd64, arm64]
+        default: both
       production_upgrade:
         description: Deploy the signed production beta package over a released TAK installation
         type: boolean
@@ -86,15 +91,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-            upgrade_runner: ubuntu-22.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            upgrade_runner: ubuntu-22.04-arm
+        arch: ${{ fromJSON(inputs.architecture == 'amd64' && '["amd64"]' || inputs.architecture == 'arm64' && '["arm64"]' || '["amd64","arm64"]') }}
     # Production upgrades use the runner profile of the regular upgrade test.
-    runs-on: ${{ (inputs.production_upgrade || inputs.live_full_core) && matrix.upgrade_runner || matrix.runner }}
+    runs-on: ${{ format('ubuntu-{0}{1}', (inputs.production_upgrade || inputs.live_full_core) && '22.04' || '24.04', matrix.arch == 'arm64' && '-arm' || '') }}
     timeout-minutes: ${{ inputs.live_full_core && 130 || inputs.production_upgrade && 100 || inputs.bundle_profiles && 45 || 25 }}
     steps:
       - name: Checkout
