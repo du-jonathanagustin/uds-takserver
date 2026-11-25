@@ -78,8 +78,12 @@ def main():
                 raise ValueError(f"Package documentation differs from source: {relative}")
         print(f"Verified signed {arch} package with the production component, chart, image and attachment inventory")
         if baseline := os.environ.get("SIGNED_BETA_UPGRADE_BASELINE"):
+            upgrade_env = os.environ.copy()
+            if upgrade_env.get("SIGNED_BETA_NEXT_BUNDLE") == "true":
+                upgrade_env.update(SIGNED_BETA_BUNDLE_KEY=str(work / "cosign.key"),
+                                   COSIGN_PASSWORD=password)
             subprocess.run(["bash", "tests/upgrade.sh", baseline, str(package), str(key)],
-                           check=True, cwd=ROOT)
+                           check=True, cwd=ROOT, env=upgrade_env)
 
 
 if __name__ == "__main__":

@@ -423,9 +423,40 @@ if [[ -n "${beta_package}" ]]; then
     .chartOverrides.takserver.takserver = load("bundle/test-values.yaml") |
     .chartOverrides.takserver.uds-takserver-config.quic.enabled = true
   ' > "${work}/beta-test-values.yaml"
-  uds zarf package deploy "${beta_package}" --confirm --key "${beta_key}" --verify=always \
-    --architecture "${arch}" --features values=true --components cloudtak \
-    --values "${work}/beta-test-values.yaml" --force-conflicts
+  if [[ -n "${SIGNED_BETA_BUNDLE_KEY:-}" ]]; then
+    beta_bundle_dir="${work}/next"
+    mkdir "${beta_bundle_dir}"
+    cp "${work}/beta-test-values.yaml" "${beta_bundle_dir}/values.yaml"
+    cp "${beta_key}" "${beta_bundle_dir}/package.pub"
+    # JSON string encoding also quotes the local package path for HCL.
+    package_source="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "${beta_package}")"
+    cat > "${beta_bundle_dir}/bundle.uds.hcl" <<HCL
+uds {
+  bundle_api_version = "uds.dev/v1alpha1"
+}
+metadata {
+  name = "tak-beta-upgrade"
+  version = "0.1.0"
+}
+package "takserver" {
+  source = ${package_source}
+  optional_components = ["cloudtak"]
+  values_files = ["values.yaml"]
+  signature_verification {
+    public_key = file("package.pub")
+  }
+}
+HCL
+    CLI_FEATURES=NextMode=true uds bundle create "${beta_bundle_dir}" --architecture "${arch}" \
+      --signing-key "${SIGNED_BETA_BUNDLE_KEY}"
+    CLI_FEATURES=NextMode=true uds bundle deploy \
+      "${beta_bundle_dir}/uds-bundle-tak-beta-upgrade-${arch}-0.1.0.tar.zst" \
+      --public-key "${beta_key}" --architecture "${arch}"
+  else
+    uds zarf package deploy "${beta_package}" --confirm --key "${beta_key}" --verify=always \
+      --architecture "${arch}" --features values=true --components cloudtak \
+      --values "${work}/beta-test-values.yaml" --force-conflicts
+  fi
 else
   # Deploy the PR package after capturing the released state.
   if [[ -z "${CANDIDATE_IMAGE_STATE:-}" ]]; then

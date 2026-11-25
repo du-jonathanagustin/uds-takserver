@@ -10,6 +10,10 @@ on:
         description: Deploy the signed production beta package over a released TAK installation
         type: boolean
         default: false
+      next_bundle_upgrade:
+        description: Deliver the signed production upgrade in a signed Next-mode bundle
+        type: boolean
+        default: false
   pull_request:
     types: [opened, reopened, synchronize]
     paths:
@@ -130,4 +134,5 @@ jobs:
       - name: Build and verify the native package
         env:
           EXPECTED_ARCHITECTURE: ${{ matrix.arch }}
+          SIGNED_BETA_NEXT_BUNDLE: ${{ inputs.next_bundle_upgrade }}
         run: uv run --no-project --with pyyaml==6.0.3 python -B -m tests.zarf_beta_package_qualification
