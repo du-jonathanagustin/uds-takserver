@@ -66,6 +66,15 @@ def main():
             raise ValueError("Composed component, chart, or image inventory differs from alpha")
         if embedded["attachments"].keys() != baseline["documentation"].keys():
             raise ValueError("Document attachment inventory differs from alpha")
+        if [entry.get("optional", False) for entry in embedded["components"]] != [
+            not entry["required"] for entry in baseline["components"]
+        ]:
+            raise ValueError("Component optionality differs from alpha")
+        zarf("package", "inspect", "documentation", package, "--key", key, "--output", work)
+        documentation = work / "takserver-documentation"
+        for relative in baseline["documentation"].values():
+            if (documentation / Path(relative).name).read_bytes() != (ROOT / relative).read_bytes():
+                raise ValueError(f"Package documentation differs from source: {relative}")
         print(f"Verified signed {arch} package with the production component, chart, image and attachment inventory")
 
 
