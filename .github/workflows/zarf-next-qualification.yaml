@@ -5,6 +5,11 @@ name: Zarf Next live qualification
 
 on:
   workflow_dispatch:
+    inputs:
+      production_upgrade:
+        description: Deploy the signed production beta package over a released TAK installation
+        type: boolean
+        default: false
   pull_request:
     types: [opened, reopened, synchronize]
     paths:
@@ -70,17 +75,23 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: ${{ inputs.production_upgrade && 100 || 25 }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Install Node, uv, Helm, and UDS CLI
+      - name: Free space and raise inotify limits for the upgrade
+        if: inputs.production_upgrade
+        run: |
+          bash .github/scripts/trim-runner.sh
+          sudo sysctl -w fs.inotify.max_user_instances=1280 fs.inotify.max_user_watches=655360
+
+      - name: Install Node, uv, Helm, k3d, and UDS CLI
         uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          install_args: node uv helm aqua:defenseunicorns/uds-cli
+          install_args: node uv helm k3d aqua:defenseunicorns/uds-cli
           cache: true
 
       - name: Install Cosign
@@ -88,6 +99,17 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=sigstore/cosign versioning=semver
           cosign-release: v3.1.4
+
+      - name: Resolve the published TAK release
+        if: inputs.production_upgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch https://github.com/jonathanagustin/uds-takserver.git --tags
+          GITHUB_REPOSITORY=jonathanagustin/uds-takserver python3 -B tests/upgrade-baseline.py \
+            --output "${RUNNER_TEMP}/tak-upgrade-baseline.json"
+          jq -e 'type == "object"' "${RUNNER_TEMP}/tak-upgrade-baseline.json" >/dev/null
+          echo "SIGNED_BETA_UPGRADE_BASELINE=${RUNNER_TEMP}/tak-upgrade-baseline.json" >> "${GITHUB_ENV}"
 
       - name: Build and verify the native package
         env:

@@ -77,6 +77,9 @@ def main():
             if (documentation / Path(relative).name).read_bytes() != (ROOT / relative).read_bytes():
                 raise ValueError(f"Package documentation differs from source: {relative}")
         print(f"Verified signed {arch} package with the production component, chart, image and attachment inventory")
+        if baseline := os.environ.get("SIGNED_BETA_UPGRADE_BASELINE"):
+            subprocess.run(["bash", "tests/upgrade.sh", baseline, str(package), str(key)],
+                           check=True, cwd=ROOT)
 
 
 if __name__ == "__main__":
