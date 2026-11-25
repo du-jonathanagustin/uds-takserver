@@ -208,7 +208,7 @@ class BetaStagingTransformTests(unittest.TestCase):
                 clusters = [action["wait"]["cluster"] for action in waits]
                 self.assertEqual([cluster["kind"] for cluster in clusters], kinds)
                 self.assertTrue(all("condition" not in cluster for cluster in clusters))
-            self.assertEqual(len(by_name["takserver"]["actions"]["onCreate"]["before"]), 1)
+            self.assertNotIn("onCreate", by_name["takserver"]["actions"])
 
 
 @unittest.skipUnless(shutil.which("uds") or os.environ.get("CI"), "uds CLI is not installed")
