@@ -124,6 +124,12 @@ def stage_beta_tree(dest):
         "values": root_alpha["values"],
         "components": [_convert_component(c) for c in root_alpha["components"]],
     }
+    attachments = root_alpha["documentation"]
+    root_beta["attachments"] = attachments
+    for relative in attachments.values():
+        target = dest / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, target)
     for entry in root_beta["components"]:
         path = Path(entry["import"]["local"][0]["path"])
         imported = yaml.safe_load((ROOT / path).read_text())
@@ -177,6 +183,10 @@ class BetaStagingTransformTests(unittest.TestCase):
             self.assertEqual(root_beta["apiVersion"], "zarf.dev/v1beta1")
             self.assertEqual(common_beta["apiVersion"], "zarf.dev/v1beta1")
             self.assertNotIn("variables", root_beta)
+            source = yaml.safe_load((ROOT / "zarf.yaml").read_text())
+            self.assertEqual(root_beta["attachments"], source["documentation"])
+            for relative in root_beta["attachments"].values():
+                self.assertEqual((Path(tmp) / relative).read_bytes(), (ROOT / relative).read_bytes())
             self.assertNotIn("###ZARF_VAR_", yaml.safe_dump(values_beta))
             by_name = {c["name"]: c for c in root_beta["components"]}
             self.assertEqual(by_name["takserver"]["import"], {"local": [{"path": "common/zarf.yaml"}]})
