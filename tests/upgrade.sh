@@ -18,7 +18,13 @@ upgrade_failed() {
 }
 trap 'upgrade_failed "$?" "${LINENO}"' ERR
 
-baseline="${1:?Usage: upgrade.sh baseline.json}"
+if [[ "$#" -ne 1 && "$#" -ne 3 ]]; then
+  echo "Usage: upgrade.sh baseline.json [signed-beta-package public-key]" >&2
+  exit 2
+fi
+baseline="$1"
+beta_package="${2:-}"
+beta_key="${3:-}"
 work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tak-upgrade.XXXXXX")"
 trap 'rm -rf "${work}"' EXIT
 root="$(pwd)"
@@ -29,6 +35,17 @@ case "$(uname -m)" in
   *) echo "upgrade: unknown machine $(uname -m)" >&2; exit 1 ;;
 esac
 export UDS_ARCH="${arch}" FLAVOR=upstream
+
+if [[ "$#" -eq 3 ]]; then
+  test -s "${beta_package}" && test -s "${beta_key}" || exit 2
+  uds zarf package verify "${beta_package}" --key "${beta_key}"
+  uds zarf package inspect definition "${beta_package}" --key "${beta_key}" --verify=always |
+    EXPECTED_ARCH="${arch}" uds zarf tools yq eval-all --exit-status '
+      select(.kind == "ZarfPackageConfig") |
+      .apiVersion == "zarf.dev/v1beta1" and .metadata.name == "takserver" and
+      .build.architecture == strenv(EXPECTED_ARCH)
+    ' - >/dev/null
+fi
 
 # Disk. The upgrade holds the released images and this branch's images at the
 # same time. On a 72 GB amd64 runner that filled the disk: the kubelet tainted
@@ -394,32 +411,45 @@ require_released_pg "released CloudTAK database" "${released_cloudtak_version}" 
 pvc_snapshot cloudtak "$(cloudtak_pod)" > "${work}/cloudtak-pvc.before"
 echo "PASS released CloudTAK database is PostgreSQL ${released_cloudtak_version} / PostGIS ${released_cloudtak_postgis}"
 
-# Only now create and deploy the PR package. Do not recreate identities or seed data.
-uds run create-dev-package --set FLAVOR=upstream --no-progress
-uds run create:test-bundle --set FLAVOR=upstream --no-progress
-mapfile -t next_bundles < <(find bundle -maxdepth 1 -name "uds-bundle-*-${arch}-*.tar.zst")
-[[ "${#next_bundles[@]}" -eq 1 ]]
-# The test bundle holds a copy of the package, and nothing below reads the
-# package file itself. On CI, delete it. Locally it stays for a later run.
-if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-  rm -f "zarf-package-takserver-${arch}-dev-upstream.tar.zst"
-fi
-# The deploy extracts the bundle, pushes its images to the Zarf registry, and
-# the node pulls and unpacks them. Allow four times the bundle size for that.
-require_free "before the upgrade" $(( $(du -k "${next_bundles[0]}" | cut -f1) * 4 ))
-# core-base is already deployed by the released bundle. When this branch's
-# bundle has the same core-base entry (ref and overrides), deploying it again
-# changes nothing and costs about three minutes, so only TAK is upgraded.
-upgrade_options="--force-conflicts"
-core_entry='.packages[] | select(.name == "core-base")'
-if [[ "$(uds zarf tools yq -o json "${core_entry}" "${work}/bundle/uds-bundle.yaml")" == \
-  "$(uds zarf tools yq -o json "${core_entry}" bundle/uds-bundle.yaml)" ]]; then
-  echo "core-base entry unchanged since ${tag}; upgrading only the takserver package"
-  upgrade_options+=" --packages takserver"
+# Keep the release's Core and cluster for a signed schema upgrade so the
+# assertions below read the state seeded on the released package.
+if [[ -n "${beta_package}" ]]; then
+  require_free "before the signed beta upgrade" $(( $(du -k "${beta_package}" | cut -f1) * 4 ))
+  uds zarf tools yq -n '
+    .chartOverrides.takserver.takserver = load("bundle/test-values.yaml") |
+    .chartOverrides.takserver.uds-takserver-config.quic.enabled = true
+  ' > "${work}/beta-test-values.yaml"
+  uds zarf package deploy "${beta_package}" --confirm --key "${beta_key}" --verify=always \
+    --architecture "${arch}" --features values=true --components cloudtak \
+    --values "${work}/beta-test-values.yaml" --force-conflicts
 else
-  echo "core-base entry changed since ${tag}; the upgrade redeploys it"
+  # Deploy the PR package after capturing the released state.
+  uds run create-dev-package --set FLAVOR=upstream --no-progress
+  uds run create:test-bundle --set FLAVOR=upstream --no-progress
+  mapfile -t next_bundles < <(find bundle -maxdepth 1 -name "uds-bundle-*-${arch}-*.tar.zst")
+  [[ "${#next_bundles[@]}" -eq 1 ]]
+  # The test bundle holds a copy of the package, and nothing below reads the
+  # package file itself. On CI, delete it. Locally it stays for a later run.
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    rm -f "zarf-package-takserver-${arch}-dev-upstream.tar.zst"
+  fi
+  # The deploy extracts the bundle, pushes its images to the Zarf registry, and
+  # the node pulls and unpacks them. Allow four times the bundle size for that.
+  require_free "before the upgrade" $(( $(du -k "${next_bundles[0]}" | cut -f1) * 4 ))
+  # core-base is already deployed by the released bundle. When this branch's
+  # bundle has the same core-base entry (ref and overrides), deploying it again
+  # changes nothing and costs about three minutes, so only TAK is upgraded.
+  upgrade_options="--force-conflicts"
+  core_entry='.packages[] | select(.name == "core-base")'
+  if [[ "$(uds zarf tools yq -o json "${core_entry}" "${work}/bundle/uds-bundle.yaml")" == \
+    "$(uds zarf tools yq -o json "${core_entry}" bundle/uds-bundle.yaml)" ]]; then
+    echo "core-base entry unchanged since ${tag}; upgrading only the takserver package"
+    upgrade_options+=" --packages takserver"
+  else
+    echo "core-base entry changed since ${tag}; the upgrade redeploys it"
+  fi
+  uds run deploy:test-bundle --no-progress --with options="${upgrade_options}"
 fi
-uds run deploy:test-bundle --no-progress --with options="${upgrade_options}"
 disk_report "after the upgrade"
 health
 mode="$(k get secret takserver-keystore -n takserver -o jsonpath='{.metadata.annotations.uds\.dev/keystore-password}')"
