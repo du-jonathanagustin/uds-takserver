@@ -4,6 +4,7 @@
 """Stage the committed slim and Full Core profiles for signed assembly tests."""
 
 import json
+import os
 import subprocess
 
 import yaml
@@ -94,11 +95,34 @@ def stage_profile(source, app, key, destination):
     return names
 
 
-def verify_profiles(root, app, key, work, arch, env):
+def test_full_core(root, source, archive, key, env):
+    core = yaml.safe_load(source.read_text())["packages"][0]
+    if core["name"] != "core-base" or not core["ref"].endswith("-upstream"):
+        raise ValueError("Expected a published Core Base checkpoint")
+    runtime_env = {
+        **os.environ,
+        "SLIM_CORE_VERSION": core["ref"].removesuffix("-upstream"),
+    }
+    subprocess.run(["bash", ".github/scripts/deploy-slim-core.sh"],
+                   cwd=root, env=runtime_env, check=True)
+    subprocess.run(["uds", "run", "fit-runner", "--no-progress"], cwd=root, check=True)
+    subprocess.run(["bash", "tests/local-path-local.sh"], cwd=root, check=True)
+    subprocess.run(["uds", "bundle", "deploy", str(archive), "--public-key", str(key)],
+                   cwd=root, env=env, check=True)
+    subprocess.run(["uds", "run", "setup:keycloak-user", "--with", "group=/UDS Core/Admin",
+                    "--no-progress"], cwd=root, check=True)
+    for fixture in ("ensure-tak-group", "ensure-outsider", "ensure-map-user"):
+        subprocess.run(["python3", f"tests/{fixture}.py"], cwd=root, check=True)
+    subprocess.run(["uds", "run", "test:all", "--no-progress"], cwd=root, check=True)
+    subprocess.run(["uds", "run", "test:full-core", "--no-progress"], cwd=root, check=True)
+
+
+def verify_profiles(root, app, key, work, arch, env, *, live_full_core=False):
     for profile, relative in (("slim", "bundle/uds-bundle.yaml"),
                               ("full", "bundle/full/uds-bundle.yaml")):
         destination = work / profile
-        names = stage_profile(root / relative, app, key, destination)
+        source = root / relative
+        names = stage_profile(source, app, key, destination)
         subprocess.run(["uds", "bundle", "create", str(destination), "--architecture", arch,
                         "--signing-key", str(work / "cosign.key")], check=True, env=env)
         archive, = destination.glob("uds-bundle-*.tar.zst")
@@ -111,4 +135,6 @@ def verify_profiles(root, app, key, work, arch, env):
                 or any(package["signature"]["verification"] != "verified" for package in info["packages"])):
             raise ValueError(f"{profile} bundle signature or package inventory differs from source")
         print(f"Verified signed {arch} {profile} bundle with {len(names)} original package IDs", flush=True)
+        if profile == "full" and live_full_core:
+            test_full_core(root, source, archive, key, env)
         archive.unlink()

@@ -78,9 +78,13 @@ def main():
             if (documentation / Path(relative).name).read_bytes() != (ROOT / relative).read_bytes():
                 raise ValueError(f"Package documentation differs from source: {relative}")
         print(f"Verified signed {arch} package with the production component, chart, image and attachment inventory")
-        if os.environ.get("SIGNED_BETA_BUNDLE_PROFILES") == "true":
+        live_full_core = os.environ.get("SIGNED_BETA_LIVE_FULL_CORE") == "true"
+        if live_full_core and os.environ.get("SIGNED_BETA_UPGRADE_BASELINE"):
+            raise ValueError("Full Core installation and production upgrade require separate clusters")
+        if live_full_core or os.environ.get("SIGNED_BETA_BUNDLE_PROFILES") == "true":
             verify_profiles(ROOT, package, key, work, arch,
-                            {**os.environ, "CLI_FEATURES": "NextMode=true", "COSIGN_PASSWORD": password})
+                            {**os.environ, "CLI_FEATURES": "NextMode=true", "COSIGN_PASSWORD": password},
+                            live_full_core=live_full_core)
         if baseline := os.environ.get("SIGNED_BETA_UPGRADE_BASELINE"):
             upgrade_env = os.environ.copy()
             if upgrade_env.get("SIGNED_BETA_NEXT_BUNDLE") == "true":
