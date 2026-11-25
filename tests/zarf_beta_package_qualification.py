@@ -35,7 +35,7 @@ def component_inventory(package):
 
 
 def main():
-    arch = {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
+    arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
     if arch != os.environ["EXPECTED_ARCHITECTURE"]:
         raise ValueError("Runner architecture differs from the qualification matrix")
     with tempfile.TemporaryDirectory(prefix="uds-beta-package-") as tmp:
