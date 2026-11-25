@@ -18,6 +18,10 @@ on:
         description: Build and verify the signed slim and Full Core bundle profiles
         type: boolean
         default: false
+      live_full_core:
+        description: Install the signed Full Core profile and run its runtime checks
+        type: boolean
+        default: false
   pull_request:
     types: [opened, reopened, synchronize]
     paths:
@@ -86,8 +90,8 @@ jobs:
             runner: ubuntu-24.04-arm
             upgrade_runner: ubuntu-22.04-arm
     # Production upgrades use the runner profile of the regular upgrade test.
-    runs-on: ${{ inputs.production_upgrade && matrix.upgrade_runner || matrix.runner }}
-    timeout-minutes: ${{ inputs.production_upgrade && 100 || inputs.bundle_profiles && 45 || 25 }}
+    runs-on: ${{ (inputs.production_upgrade || inputs.live_full_core) && matrix.upgrade_runner || matrix.runner }}
+    timeout-minutes: ${{ inputs.live_full_core && 130 || inputs.production_upgrade && 100 || inputs.bundle_profiles && 45 || 25 }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,14 +99,14 @@ jobs:
           persist-credentials: false
 
       - name: Set up upgrade test Python
-        if: inputs.production_upgrade
+        if: inputs.production_upgrade || inputs.live_full_core
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
           check-latest: false
 
       - name: Free space and raise inotify limits for the upgrade
-        if: inputs.production_upgrade
+        if: inputs.production_upgrade || inputs.live_full_core
         run: |
           bash .github/scripts/trim-runner.sh
           sudo sysctl -w fs.inotify.max_user_instances=1280 fs.inotify.max_user_watches=655360
@@ -141,4 +145,5 @@ jobs:
           EXPECTED_ARCHITECTURE: ${{ matrix.arch }}
           SIGNED_BETA_NEXT_BUNDLE: ${{ inputs.next_bundle_upgrade }}
           SIGNED_BETA_BUNDLE_PROFILES: ${{ inputs.bundle_profiles }}
+          SIGNED_BETA_LIVE_FULL_CORE: ${{ inputs.live_full_core }}
         run: uv run --no-project --with pyyaml==6.0.3 python -B -m tests.zarf_beta_package_qualification
