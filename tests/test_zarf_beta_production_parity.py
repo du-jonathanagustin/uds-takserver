@@ -111,7 +111,6 @@ def stage_beta_tree(dest):
         os.symlink(ROOT / link, dest / link)
 
     root_alpha = yaml.safe_load((ROOT / "zarf.yaml").read_text())
-    common_alpha = yaml.safe_load((ROOT / "common/zarf.yaml").read_text())
     defaults = {v["name"]: v.get("default", "") for v in root_alpha["variables"]}
 
     values_path = dest / "values/zarf-values.yaml"
@@ -125,18 +124,22 @@ def stage_beta_tree(dest):
         "values": root_alpha["values"],
         "components": [_convert_component(c) for c in root_alpha["components"]],
     }
-    common_comp = _convert_component(common_alpha["components"][0])
-    common_comp.pop("name", None)
-    common_meta = dict(common_alpha["metadata"])
-    common_meta.setdefault("version", root_alpha["metadata"].get("version", "dev"))
-    common_beta = {
-        "apiVersion": "zarf.dev/v1beta1",
-        "kind": "ZarfComponentConfig",
-        "metadata": common_meta,
-        "component": common_comp,
-    }
-    (dest / "common").mkdir()
-    (dest / "common/zarf.yaml").write_text(yaml.safe_dump(common_beta, sort_keys=False))
+    for entry in root_beta["components"]:
+        path = Path(entry["import"]["local"][0]["path"])
+        imported = yaml.safe_load((ROOT / path).read_text())
+        component = _convert_component(imported["components"][0])
+        component.pop("name")
+        metadata = dict(imported["metadata"])
+        metadata.setdefault("version", root_alpha["metadata"].get("version", "dev"))
+        beta = {
+            "apiVersion": "zarf.dev/v1beta1",
+            "kind": "ZarfComponentConfig",
+            "metadata": metadata,
+            "component": component,
+        }
+        (dest / path).parent.mkdir(parents=True, exist_ok=True)
+        (dest / path).write_text(yaml.safe_dump(beta, sort_keys=False))
+    common_beta = yaml.safe_load((dest / "common/zarf.yaml").read_text())
     (dest / "zarf.yaml").write_text(yaml.safe_dump(root_beta, sort_keys=False))
     return root_beta, common_beta, values_beta
 
@@ -178,6 +181,8 @@ class BetaStagingTransformTests(unittest.TestCase):
             by_name = {c["name"]: c for c in root_beta["components"]}
             self.assertEqual(by_name["takserver"]["import"], {"local": [{"path": "common/zarf.yaml"}]})
             self.assertEqual(by_name["takserver"]["selector"], {"flavor": "upstream"})
+            self.assertEqual(by_name["cloudtak"]["import"],
+                             {"local": [{"path": "common/cloudtak/zarf.yaml"}]})
             self.assertTrue(by_name["cloudtak"].get("optional"))
             self.assertNotIn("required", by_name["cloudtak"])
             self.assertNotIn("default", by_name["cloudtak"])
