@@ -48,10 +48,68 @@ def package_values(package, source):
     return overrides
 
 
+
+def runtime_overlay(package):
+    names = {
+        entry["name"]
+        for charts in package.get("overrides", {}).values()
+        for override in charts.values()
+        for entry in override.get("variables", [])
+    }
+    if package["name"] == "takserver":
+        if names - {"CLOUDTAK_BASEMAP_ENABLED", "CLOUDTAK_SSO_GROUPS"}:
+            raise ValueError(f"Unmapped TAK chart variables: {sorted(names)}")
+        if not names:
+            return ""
+        supports_basemap = "true" if "CLOUDTAK_BASEMAP_ENABLED" in names else "false"
+        return """{{- $basemap := index .vars "CLOUDTAK_BASEMAP_ENABLED" }}
+{{- $groups := index .vars "CLOUDTAK_SSO_GROUPS" }}
+{{- $setBasemap := and SUPPORTS_BASEMAP (ne $basemap nil) }}
+{{- if or $setBasemap (ne $groups nil) }}
+chartOverrides:
+  cloudtak:
+    uds-cloudtak:
+      {{- if $setBasemap }}
+      basemap:
+        enabled: {{ $basemap }}
+      {{- end }}
+      {{- if ne $groups nil }}
+      sso:
+        groups: [{{ range $i, $group := $groups }}{{ if $i }}, {{ end }}{{ printf "%q" $group }}{{ end }}]
+      {{- end }}
+{{- else }}
+{}
+{{- end }}
+""".replace("SUPPORTS_BASEMAP", supports_basemap)
+    if not names:
+        return ""
+    if names != {"TENANT_TLS_CERT", "TENANT_TLS_KEY"}:
+        raise ValueError(f"Unmapped Core chart variables: {sorted(names)}")
+    return """{{- $cert := index .vars "TENANT_TLS_CERT" }}
+{{- $key := index .vars "TENANT_TLS_KEY" }}
+{{- if or $cert $key }}
+istio-tenant-gateway:
+  uds-istio-config:
+    tls:
+      {{- with $cert }}
+      cert: {{ printf "%q" . }}
+      {{- end }}
+      {{- with $key }}
+      key: {{ printf "%q" . }}
+      {{- end }}
+{{- else }}
+{}
+{{- end }}
+"""
+
+
 def stage_profile(source, app, key, destination):
     destination.mkdir()
     (destination / "tak.pub").write_bytes(key.read_bytes())
     packages = yaml.safe_load(source.read_text())["packages"]
+    # A default config keeps the values templater active even for deployments
+    # with no optional variables. No deployment credentials enter the archive.
+    (destination / "defaults.uds.hcl").write_text('variables = { DOMAIN = "uds.dev" }\n')
     lines = [
         'uds { bundle_api_version = "uds.dev/v1alpha1" }',
         'metadata {',
@@ -70,10 +128,17 @@ def stage_profile(source, app, key, destination):
         names.append(name)
         if optional := package.get("optionalComponents"):
             lines.append(f'  optional_components = {json.dumps(optional)}')
+        values_files = []
         if values := package_values(package, source):
             filename = f"{name}.yaml"
             (destination / filename).write_text(yaml.safe_dump(values, sort_keys=False))
-            lines.append(f'  values_files = ["{filename}"]')
+            values_files.append(filename)
+        if overlay := runtime_overlay(package):
+            filename = f"{name}-runtime.yaml"
+            (destination / filename).write_text(overlay)
+            values_files.append(filename)
+        if values_files:
+            lines.append(f"  values_files = {json.dumps(values_files)}")
         if "repository" in package:
             signer = package["keylessVerification"]
             identity = json.dumps(signer["certificateIdentityRegexp"])
