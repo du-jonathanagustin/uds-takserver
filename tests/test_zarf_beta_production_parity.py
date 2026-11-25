@@ -69,8 +69,10 @@ def _convert_component(component):
         on_deploy = dict(actions.get("onDeploy") or {})
         waits = list(on_deploy.get("onSuccess") or [])
         for hc in component["healthChecks"]:
-            kind = hc["kind"].lower()
-            condition = "available" if kind == "deployment" else "exists"
+            kind = hc["kind"]
+            if "/" in hc["apiVersion"]:
+                group, version = hc["apiVersion"].split("/", 1)
+                kind = f"{kind}.{version}.{group}"
             waits.append({
                 "description": f"Wait for {hc['kind']}/{hc['name']}",
                 "wait": {
@@ -78,7 +80,6 @@ def _convert_component(component):
                         "kind": kind,
                         "name": hc["name"],
                         "namespace": hc["namespace"],
-                        "condition": condition,
                     }
                 },
             })
@@ -199,8 +200,14 @@ class BetaStagingTransformTests(unittest.TestCase):
             self.assertTrue(all(isinstance(i, dict) and "name" in i for i in by_name["takserver"]["images"]))
             self.assertNotIn("healthChecks", by_name["takserver"])
             self.assertNotIn("healthChecks", by_name["cloudtak"])
-            self.assertEqual(len(by_name["takserver"]["actions"]["onDeploy"]["onSuccess"]), 2)
-            self.assertEqual(len(by_name["cloudtak"]["actions"]["onDeploy"]["onSuccess"]), 2)
+            for name, kinds in {
+                "takserver": ["ConfigMap", "Package.v1alpha1.uds.dev"],
+                "cloudtak": ["Package.v1alpha1.uds.dev", "Deployment.v1.apps"],
+            }.items():
+                waits = by_name[name]["actions"]["onDeploy"]["onSuccess"]
+                clusters = [action["wait"]["cluster"] for action in waits]
+                self.assertEqual([cluster["kind"] for cluster in clusters], kinds)
+                self.assertTrue(all("condition" not in cluster for cluster in clusters))
             self.assertEqual(len(by_name["takserver"]["actions"]["onCreate"]["before"]), 1)
 
 
