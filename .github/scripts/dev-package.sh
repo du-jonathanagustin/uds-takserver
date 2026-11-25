@@ -28,7 +28,7 @@ root="$(git rev-parse --show-toplevel)"
 cd "${root}"
 
 package_repository="jonathanagustin/uds-takserver"
-if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+if [[ -z "${DEV_PACKAGE_REPO:-}" && "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_REPOSITORY:-}" ]]; then
   package_repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
 fi
 repo="${DEV_PACKAGE_REPO:-ghcr.io/${package_repository}/ci-packages}"
