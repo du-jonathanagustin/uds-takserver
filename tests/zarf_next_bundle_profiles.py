@@ -172,8 +172,10 @@ def test_full_core(root, source, archive, key, env):
                    cwd=root, env=runtime_env, check=True)
     subprocess.run(["uds", "run", "fit-runner", "--no-progress"], cwd=root, check=True)
     subprocess.run(["bash", "tests/local-path-local.sh"], cwd=root, check=True)
-    subprocess.run(["uds", "bundle", "deploy", str(archive), "--public-key", str(key)],
-                   cwd=root, env=env, check=True)
+    command = ["uds", "bundle", "deploy", str(archive), "--public-key", str(key)]
+    if env.get("SIGNED_BETA_FORCE_CONFLICTS") == "true":
+        command.append("--force-conflicts")
+    subprocess.run(command, cwd=root, env=env, check=True)
     subprocess.run(["uds", "run", "setup:keycloak-user", "--with", "group=/UDS Core/Admin",
                     "--no-progress"], cwd=root, check=True)
     for fixture in ("ensure-tak-group", "ensure-outsider", "ensure-map-user"):
