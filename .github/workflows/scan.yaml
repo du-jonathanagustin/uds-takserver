@@ -16,7 +16,7 @@ on:
       - ".github/workflows/scan.yaml"
       - ".github/scripts/pin-image-tags.sh"
       - ".github/scripts/strict-scan-compare.py"
-      - ".github/scripts/candidate-scan-mappings.py"
+      - ".github/scripts/candidate-*.py"
       - ".github/test-infra/release-binding.py"
       - ".github/test-infra/release-readiness.py"
       - "tests/test_strict_scan_compare.py"
