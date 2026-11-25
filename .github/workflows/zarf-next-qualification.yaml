@@ -72,9 +72,12 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-24.04
+            upgrade_runner: ubuntu-22.04
           - arch: arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+            upgrade_runner: ubuntu-22.04-arm
+    # Production upgrades use the runner profile of the regular upgrade test.
+    runs-on: ${{ inputs.production_upgrade && matrix.upgrade_runner || matrix.runner }}
     timeout-minutes: ${{ inputs.production_upgrade && 100 || 25 }}
     steps:
       - name: Checkout
@@ -82,11 +85,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up upgrade test Python
+        if: inputs.production_upgrade
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          check-latest: false
+
       - name: Free space and raise inotify limits for the upgrade
         if: inputs.production_upgrade
         run: |
           bash .github/scripts/trim-runner.sh
           sudo sysctl -w fs.inotify.max_user_instances=1280 fs.inotify.max_user_watches=655360
+          listeners="$(sudo ss -Hltpn 'sport = :443')"
+          if [[ -n "${listeners}" ]]; then
+            printf '%s\n' "${listeners}"
+            echo "::error title=Upgrade ingress port occupied::TCP 443 must be free for the Slim Core checkpoint."
+            exit 1
+          fi
 
       - name: Install Node, uv, Helm, k3d, and UDS CLI
         uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
