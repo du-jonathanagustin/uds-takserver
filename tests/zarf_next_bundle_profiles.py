@@ -24,9 +24,27 @@ def package_values(package, source):
                 for parent in parents:
                     target = target.setdefault(parent, {})
                 target[field] = entry["value"]
-    # This assembly test uses the production defaults. Runtime variables are
-    # supplied at deployment and are outside the static archive comparison.
-    return {"chartOverrides": values} if package["name"] == "takserver" else values
+    if package["name"] != "takserver":
+        return values
+
+    legacy = yaml.safe_load(source.with_name("uds-config.yaml").read_text())["variables"]["takserver"]
+    paths = {
+        "DOMAIN": ("global", "domain"),
+        "TAK_IMAGE_TAG": ("tak", "imageTag"),
+        "FILESYSTEM_BACKUP": ("backup", "filesystem", "enabled"),
+        "POSTGRES_STORAGE_CLASS": ("storage", "postgresClass"),
+        "CLOUDTAK_STORAGE_CLASS": ("storage", "cloudtakClass"),
+    }
+    overrides = {"chartOverrides": values}
+    for name, value in legacy.items():
+        if name not in paths:
+            raise ValueError(f"Unmapped profile variable: {name}")
+        *parents, field = paths[name]
+        target = overrides
+        for parent in parents:
+            target = target.setdefault(parent, {})
+        target[field] = value
+    return overrides
 
 
 def stage_profile(source, app, key, destination):
