@@ -43,10 +43,11 @@ def main():
         stage = work / "source"
         stage.mkdir()
         stage_beta_tree(stage)
-        # The onCreate hook builds the chart in its own isolated source tree.
+        # Generate the chart in the isolated source tree before calling Zarf.
         (stage / "pepr").unlink()
         shutil.copytree(ROOT / "pepr", stage / "pepr",
                         ignore=shutil.ignore_patterns("dist", "node_modules"))
+        subprocess.run(["bash", "pepr/build.sh"], check=True, cwd=stage)
         password = secrets.token_hex(32)
         subprocess.run(["cosign", "generate-key-pair"], check=True, cwd=work,
                        env={**os.environ, "COSIGN_PASSWORD": password})
