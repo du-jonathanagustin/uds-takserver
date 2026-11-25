@@ -22,6 +22,10 @@ on:
         description: Install the signed Full Core profile and run its runtime checks
         type: boolean
         default: false
+      trial_force_conflicts:
+        description: Use the local CLI patch to qualify the Core upgrade conflict
+        type: boolean
+        default: false
   pull_request:
     types: [opened, reopened, synchronize]
     paths:
@@ -128,6 +132,21 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=sigstore/cosign versioning=semver
           cosign-release: v3.1.4
+
+      - name: Build the pinned UDS CLI conflict trial
+        if: inputs.live_full_core && inputs.trial_force_conflicts
+        run: |
+          set -euo pipefail
+          source_dir="$(mktemp -d "${RUNNER_TEMP}/uds-next-cli.XXXXXX")"
+          git init -q "${source_dir}"
+          git -C "${source_dir}" fetch --depth 1 https://github.com/defenseunicorns/uds-cli.git 9aa9486800da005843ee13f61e151ab03b2c1d25
+          git -C "${source_dir}" checkout -q --detach FETCH_HEAD
+          git -C "${source_dir}" apply --unidiff-zero "${GITHUB_WORKSPACE}/tests/fixtures/uds-next-force-conflicts.patch"
+          mkdir "${source_dir}/bin"
+          (cd "${source_dir}" && GOTOOLCHAIN=go1.26.11 go build -mod=vendor -o bin/uds ./cmd/uds)
+          CLI_FEATURES=NextMode=true "${source_dir}/bin/uds" bundle deploy --help | grep -F -- --force-conflicts
+          echo "${source_dir}/bin" >> "${GITHUB_PATH}"
+          echo "SIGNED_BETA_FORCE_CONFLICTS=true" >> "${GITHUB_ENV}"
 
       - name: Resolve the published TAK release
         if: inputs.production_upgrade

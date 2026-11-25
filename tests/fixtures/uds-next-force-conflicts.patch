@@ -1,0 +1,154 @@
+diff --git a/internal/cli/bundle/deploy.go b/internal/cli/bundle/deploy.go
+index 7ecfc44b..ccdf11a0 100644
+--- a/internal/cli/bundle/deploy.go
++++ b/internal/cli/bundle/deploy.go
+@@ -25,8 +25,9 @@ type DeployOptions struct {
+-	BundlePath   string
+-	Packages     []string
+-	Force        bool
+-	Resume       bool
+-	Variables    []string
+-	Config       *bundle.UDSBundleConfig
+-	Verification VerifyOptions
+-	Printer      printer.ResourcePrinter
++	BundlePath     string
++	Packages       []string
++	Force          bool
++	ForceConflicts bool
++	Resume         bool
++	Variables      []string
++	Config         *bundle.UDSBundleConfig
++	Verification   VerifyOptions
++	Printer        printer.ResourcePrinter
+@@ -85 +86 @@ inputs and must use uds bundle dev deploy instead.`,
+-	addDeployFlags(cmd, &o.Packages, &o.Force, &o.Resume, &o.Variables)
++	addDeployFlags(cmd, &o.Packages, &o.Force, &o.ForceConflicts, &o.Resume, &o.Variables)
+@@ -91 +92 @@ inputs and must use uds bundle dev deploy instead.`,
+-func addDeployFlags(cmd *cobra.Command, packages *[]string, force *bool, resume *bool, variables *[]string) {
++func addDeployFlags(cmd *cobra.Command, packages *[]string, force *bool, forceConflicts *bool, resume *bool, variables *[]string) {
+@@ -93,0 +95 @@ func addDeployFlags(cmd *cobra.Command, packages *[]string, force *bool, resume
++	cmd.Flags().BoolVar(forceConflicts, "force-conflicts", false, "allow Helm to take ownership of conflicting server-side apply fields")
+@@ -220,5 +222,6 @@ func (o *DeployOptions) Run(ctx context.Context) error {
+-			bundlePath: o.BundlePath,
+-			packages:   o.Packages,
+-			force:      o.Force,
+-			resume:     o.Resume,
+-			prompt:     o.flags.Prompt,
++			bundlePath:     o.BundlePath,
++			packages:       o.Packages,
++			force:          o.Force,
++			forceConflicts: o.ForceConflicts,
++			resume:         o.Resume,
++			prompt:         o.flags.Prompt,
+@@ -273,5 +276,6 @@ func (o *DeployOptions) runOCIArtifact(ctx context.Context, runner deployRunnerF
+-		bundlePath: artifactPath,
+-		packages:   o.Packages,
+-		force:      o.Force,
+-		resume:     o.Resume,
+-		prompt:     o.flags.Prompt,
++		bundlePath:     artifactPath,
++		packages:       o.Packages,
++		force:          o.Force,
++		forceConflicts: o.ForceConflicts,
++		resume:         o.Resume,
++		prompt:         o.flags.Prompt,
+diff --git a/internal/cli/bundle/deploy_runner.go b/internal/cli/bundle/deploy_runner.go
+index e948e315..69ce8592 100644
+--- a/internal/cli/bundle/deploy_runner.go
++++ b/internal/cli/bundle/deploy_runner.go
+@@ -26,5 +26,6 @@ type deployOptions struct {
+-	bundlePath string
+-	packages   []string
+-	force      bool
+-	resume     bool
+-	prompt     bool
++	bundlePath     string
++	packages       []string
++	force          bool
++	forceConflicts bool
++	resume         bool
++	prompt         bool
+@@ -118,5 +119,6 @@ func runDeployWith(
+-		Config:   config,
+-		Packages: opts.packages,
+-		Force:    opts.force,
+-		Resume:   opts.resume,
+-		Streams:  streams,
++		Config:         config,
++		Packages:       opts.packages,
++		Force:          opts.force,
++		ForceConflicts: opts.forceConflicts,
++		Resume:         opts.resume,
++		Streams:        streams,
+diff --git a/internal/cli/bundle/dev_deploy.go b/internal/cli/bundle/dev_deploy.go
+index ca2da08e..62559560 100644
+--- a/internal/cli/bundle/dev_deploy.go
++++ b/internal/cli/bundle/dev_deploy.go
+@@ -21,7 +21,8 @@ type DevDeployOptions struct {
+-	BundlePath string
+-	Packages   []string
+-	Force      bool
+-	Resume     bool
+-	Variables  []string
+-	Config     *bundlepkg.UDSBundleConfig
+-	Printer    printer.ResourcePrinter
++	BundlePath     string
++	Packages       []string
++	Force          bool
++	ForceConflicts bool
++	Resume         bool
++	Variables      []string
++	Config         *bundlepkg.UDSBundleConfig
++	Printer        printer.ResourcePrinter
+@@ -75 +76 @@ local and OCI bundle artifacts must use uds bundle deploy instead.`,
+-	addDeployFlags(cmd, &o.Packages, &o.Force, &o.Resume, &o.Variables)
++	addDeployFlags(cmd, &o.Packages, &o.Force, &o.ForceConflicts, &o.Resume, &o.Variables)
+@@ -129,5 +130,6 @@ func (o *DevDeployOptions) Run(ctx context.Context) error {
+-		bundlePath: resolveBundlePath(o.BundlePath),
+-		packages:   o.Packages,
+-		force:      o.Force,
+-		resume:     o.Resume,
+-		prompt:     o.flags.Prompt,
++		bundlePath:     resolveBundlePath(o.BundlePath),
++		packages:       o.Packages,
++		force:          o.Force,
++		forceConflicts: o.ForceConflicts,
++		resume:         o.Resume,
++		prompt:         o.flags.Prompt,
+diff --git a/internal/zarf/deploy.go b/internal/zarf/deploy.go
+index 581a03c5..4ba51407 100644
+--- a/internal/zarf/deploy.go
++++ b/internal/zarf/deploy.go
+@@ -63,0 +64 @@ type DeployOptions struct {
++	ForceConflicts     bool
+@@ -97 +98,2 @@ type DeployPackageOptions struct {
+-	ZarfRetries int
++	ZarfRetries    int
++	ForceConflicts bool
+@@ -236,0 +239 @@ func (d *ZarfDeployer) DeployBundle(ctx context.Context, b *spec.UDSBundle, opts
++		ForceConflicts:     opts.ForceConflicts,
+@@ -354,0 +358 @@ func (d *ZarfDeployer) DeployPackage(ctx context.Context, pkg *spec.Package, opt
++		ForceConflicts:        opts.ForceConflicts,
+diff --git a/pkg/bundle/deploy.go b/pkg/bundle/deploy.go
+index 02d63bd8..3a5e6f2a 100644
+--- a/pkg/bundle/deploy.go
++++ b/pkg/bundle/deploy.go
+@@ -134,0 +135,2 @@ type DeployOptions struct {
++	// ForceConflicts allows Helm to take ownership of conflicting server-side apply fields.
++	ForceConflicts bool
+@@ -372,0 +375 @@ func toZarfDeployOptions(opts DeployOptions, source *DeploySource) internalzarf.
++		ForceConflicts:     opts.ForceConflicts,
+diff --git a/pkg/bundle/zarf_test.go b/pkg/bundle/zarf_test.go
+index 57dc4854..68070630 100644
+--- a/pkg/bundle/zarf_test.go
++++ b/pkg/bundle/zarf_test.go
+@@ -452,3 +452,4 @@ func TestDeployOptionsPropagateZarfSettingsToPackages(t *testing.T) {
+-		Config:      validValidationConfig(),
+-		ZarfTimeout: 4 * time.Minute,
+-		ZarfRetries: 1,
++		Config:         validValidationConfig(),
++		ZarfTimeout:    4 * time.Minute,
++		ZarfRetries:    1,
++		ForceConflicts: true,
+@@ -460,0 +462 @@ func TestDeployOptionsPropagateZarfSettingsToPackages(t *testing.T) {
++		assert.True(t, packageOpts.ForceConflicts)
