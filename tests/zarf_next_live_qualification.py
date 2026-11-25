@@ -66,6 +66,19 @@ def _write_bundle_scaffold(bundle_dir, name, pub_path, packages_hcl):
         '  domain: "{{ .vars.domain }}"\n'
         'storage:\n'
         '  cloudtakClass: "{{ .vars.cloudtak_class }}"\n'
+        '{{- $basemap := index .vars "CLOUDTAK_BASEMAP_ENABLED" }}\n'
+        '{{- $groups := index .vars "CLOUDTAK_SSO_GROUPS" }}\n'
+        '{{- if or (ne $basemap nil) (ne $groups nil) }}\n'
+        'chartOverrides:\n'
+        '  contract:\n'
+        '    runtime:\n'
+        '      {{- if ne $basemap nil }}\n'
+        '      basemap: {{ $basemap }}\n'
+        '      {{- end }}\n'
+        '      {{- if ne $groups nil }}\n'
+        '      groups: [{{ range $i, $group := $groups }}{{ if $i }}, {{ end }}{{ printf "%q" $group }}{{ end }}]\n'
+        '      {{- end }}\n'
+        '{{- end }}\n'
     )
     (bundle_dir / 'bundle.uds.hcl').write_text(
         'uds {\n'
@@ -204,14 +217,25 @@ def main():
         assert_configmap_absent(cli, 'contract')
 
         # Gate 1b: signed Next-mode deploy applies --set values and includes optional-addon.
+        runtime_config = tmp / 'runtime.uds.hcl'
+        runtime_config.write_text(
+            'variables = {\n'
+            '  CLOUDTAK_BASEMAP_ENABLED = false\n'
+            '  CLOUDTAK_SSO_GROUPS = ["/UDS Core/Admin", "/CloudTAK/Map, Ops"]\n'
+            '}\n'
+        )
         run_cmd([
             cli, 'bundle', 'deploy', str(include_bundle),
             '--public-key', str(good_pub),
+            '--config', str(runtime_config),
             '--set', 'domain=live-next.example',
             '--set', 'cloudtak_class=live-ssd',
         ], env=next_env)
         contract_cm = get_configmap(cli, 'contract')
         addon_cm = get_configmap(cli, 'optional-addon')
+        expected_runtime = '{"basemap":false,"groups":["/UDS Core/Admin","/CloudTAK/Map, Ops"]}'
+        if contract_cm.get('RUNTIME') != expected_runtime:
+            raise RuntimeError(f'Gate 1 typed runtime override mismatch: {contract_cm.get("RUNTIME")}')
         if contract_cm.get('DOMAIN') != 'live-next.example' or contract_cm.get('CLOUDTAK_STORAGE_CLASS') != 'live-ssd':
             raise RuntimeError(f'Gate 1 contract ConfigMap mismatch: {contract_cm}')
         if addon_cm != {'DOMAIN': 'live-next.example', 'CLOUDTAK_STORAGE_CLASS': 'live-ssd'}:

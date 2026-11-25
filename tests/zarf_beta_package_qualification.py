@@ -14,6 +14,7 @@ import tempfile
 import yaml
 
 from tests.test_zarf_beta_production_parity import ROOT, stage_beta_tree
+from tests.zarf_next_bundle_profiles import verify_profiles
 
 
 def zarf(*args, capture=False):
@@ -76,6 +77,20 @@ def main():
             if (documentation / Path(relative).name).read_bytes() != (ROOT / relative).read_bytes():
                 raise ValueError(f"Package documentation differs from source: {relative}")
         print(f"Verified signed {arch} package with the production component, chart, image and attachment inventory")
+        live_full_core = os.environ.get("SIGNED_BETA_LIVE_FULL_CORE") == "true"
+        if live_full_core and os.environ.get("SIGNED_BETA_UPGRADE_BASELINE"):
+            raise ValueError("Full Core installation and production upgrade require separate clusters")
+        if live_full_core or os.environ.get("SIGNED_BETA_BUNDLE_PROFILES") == "true":
+            verify_profiles(ROOT, package, key, work, arch,
+                            {**os.environ, "CLI_FEATURES": "NextMode=true", "COSIGN_PASSWORD": password},
+                            live_full_core=live_full_core)
+        if baseline := os.environ.get("SIGNED_BETA_UPGRADE_BASELINE"):
+            upgrade_env = os.environ.copy()
+            if upgrade_env.get("SIGNED_BETA_NEXT_BUNDLE") == "true":
+                upgrade_env.update(SIGNED_BETA_BUNDLE_KEY=str(work / "cosign.key"),
+                                   COSIGN_PASSWORD=password)
+            subprocess.run(["bash", "tests/upgrade.sh", baseline, str(package), str(key)],
+                           check=True, cwd=ROOT, env=upgrade_env)
 
 
 if __name__ == "__main__":

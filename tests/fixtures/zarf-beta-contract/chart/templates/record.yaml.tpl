@@ -11,3 +11,6 @@ data:
 {{- if .Values.extra }}
   EXTRA: {{ .Values.extra | quote }}
 {{- end }}
+{{- with .Values.runtime }}
+  RUNTIME: {{ . | toJson | quote }}
+{{- end }}
