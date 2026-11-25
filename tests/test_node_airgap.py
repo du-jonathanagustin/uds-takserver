@@ -97,7 +97,6 @@ class AirgapContracts(unittest.TestCase):
             ('process-exit', 'import sys;sys.exit(137)', 1, 137, None),
             ('process-signal', 'import os,signal;os.kill(os.getpid(),signal.SIGTERM)', 1, -15, 15),
             ('deadline', 'import time;time.sleep(30)', 0.1, None, None),
-            ('wait-deadline', 'import os,time;os.close(1);os.close(2);time.sleep(30)', 0.1, None, None),
             ('output-limit', 'import sys;sys.stdout.write("x"*70000)', 1, None, None),
             ('invalid-utf8', 'import sys;sys.stdout.buffer.write(b"\\xff")', 1, None, None),
             ('os-error', None, 1, None, None),
@@ -125,6 +124,17 @@ class AirgapContracts(unittest.TestCase):
             self.assertLess(len(json.dumps(metadata)), 300)
             self.assertNotIn('PRIVATE', output.getvalue())
             self.assertNotIn(source or 'nonexistent', output.getvalue())
+
+    def test_wait_timeout_metadata_omits_command_and_output(self):
+        error = subprocess.TimeoutExpired(['PRIVATE_ARG_SECRET'], 1,
+                                          stderr=b'PRIVATE_OUTPUT_SECRET')
+        result = AIRGAP.firewall_failure_metadata(('-L', AIRGAP.CHAIN), error,
+                                                  time.monotonic())
+        self.assertEqual(result['outcome'], 'wait-deadline')
+        self.assertIsNone(result['exit'])
+        self.assertIsNone(result['signal'])
+        self.assertEqual(result['operation'], 'list-chain')
+        self.assertNotIn('PRIVATE', json.dumps(result))
 
     def test_failure_metadata_clamps_numbers_and_never_echoes_unknown_errors(self):
         error = subprocess.CalledProcessError(999999, ['PRIVATE_ARG_SECRET'])
