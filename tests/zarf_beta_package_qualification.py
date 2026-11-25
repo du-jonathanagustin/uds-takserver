@@ -14,6 +14,7 @@ import tempfile
 import yaml
 
 from tests.test_zarf_beta_production_parity import ROOT, stage_beta_tree
+from tests.zarf_next_bundle_profiles import verify_profiles
 
 
 def zarf(*args, capture=False):
@@ -76,6 +77,9 @@ def main():
             if (documentation / Path(relative).name).read_bytes() != (ROOT / relative).read_bytes():
                 raise ValueError(f"Package documentation differs from source: {relative}")
         print(f"Verified signed {arch} package with the production component, chart, image and attachment inventory")
+        if os.environ.get("SIGNED_BETA_BUNDLE_PROFILES") == "true":
+            verify_profiles(ROOT, package, key, work, arch,
+                            {**os.environ, "CLI_FEATURES": "NextMode=true", "COSIGN_PASSWORD": password})
         if baseline := os.environ.get("SIGNED_BETA_UPGRADE_BASELINE"):
             upgrade_env = os.environ.copy()
             if upgrade_env.get("SIGNED_BETA_NEXT_BUNDLE") == "true":
